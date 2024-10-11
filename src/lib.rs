@@ -507,7 +507,7 @@ pub fn main() {
         })
         .unwrap();
 
-    skyline::install_hooks!(initial_loading, change_version_string, show_eshop, online_slot_spoof, change_fighter_color_l, change_fighter_color_r);
+    skyline::install_hooks!(initial_loading, change_version_string, show_eshop, online_slot_spoof);
 
     // If we skip the title scene, we obviously skip the opening cutscene with it. Well, actually not necessarily but in this case we do.
     if config::skip_title_scene() {
