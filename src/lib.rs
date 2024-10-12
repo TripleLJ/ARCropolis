@@ -500,7 +500,7 @@ pub fn main() {
         })
         .unwrap();
 
-    skyline::install_hooks!(initial_loading, change_version_string, online_slot_spoof, change_fighter_color_l, change_fighter_color_r);
+    skyline::install_hooks!(initial_loading, change_version_string, online_slot_spoof);
 
     #[cfg(feature = "ui")]
     skyline::install_hook!(show_eshop);
