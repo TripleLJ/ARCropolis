@@ -7,6 +7,7 @@ use std::{
 use crate::offsets;
 
 const CONFIG_SIZE: usize = 0x4d0;
+const ARG_SIZE: usize = 0x510;
 
 const PRESET_DEFAULT: u32 = 0;
 
@@ -77,7 +78,10 @@ struct ShowKeyboardArg {
     text_buffer_size: usize,
     dictionary: *const u8,
     dictionary_size: usize,
+    text_check: [usize; 2],
 }
+
+const _: () = assert!(size_of::<ShowKeyboardArg>() == ARG_SIZE);
 
 fn utf16(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
@@ -100,6 +104,7 @@ pub unsafe fn ask(header: &str, guide: &str, max_length: u32, initial: Option<&s
         text_buffer_size: 0,
         dictionary: ptr::null(),
         dictionary_size: 0,
+        text_check: [0; 2],
     });
 
     let config = ptr::addr_of_mut!(arg.config).cast::<u8>();

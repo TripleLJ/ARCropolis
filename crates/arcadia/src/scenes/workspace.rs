@@ -1,7 +1,6 @@
 use std::{
     ffi::CStr,
     ptr::{addr_of_mut, NonNull},
-    sync::{Arc, Mutex},
 };
 
 use crate::{
@@ -75,12 +74,6 @@ const FOOTER_BUBBLE_ROW: i32 = -2;
 
 static ASSIGN_EXTRA: [(VirtualButton, Buttons); 1] = [(VirtualButton::Extra0, Buttons::X)];
 
-enum KeyboardSlot {
-    Running,
-    Cancelled,
-    Name(String),
-}
-
 #[derive(Clone, Copy)]
 enum NameFor {
     Create,
@@ -90,7 +83,6 @@ enum NameFor {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Waiting {
     Nothing,
-    Keyboard,
     Popup,
     SubMenu,
 }
@@ -123,9 +115,6 @@ pub struct ArcadiaWorkspaceScene {
     waiting: Waiting,
     waiting_frames: u32,
 
-    keyboard: Option<Arc<Mutex<KeyboardSlot>>>,
-    keyboard_for: NameFor,
-
     bubble_target: usize,
     bubble_opened: bool,
 
@@ -154,8 +143,6 @@ unsafe impl SceneImpl for ArcadiaWorkspaceScene {
             hint_pane: None,
             waiting: Waiting::Nothing,
             waiting_frames: 0,
-            keyboard: None,
-            keyboard_for: NameFor::Create,
             bubble_target: 0,
             bubble_opened: false,
             popup_name: Vec::new(),
@@ -190,7 +177,6 @@ unsafe impl SceneImpl for ArcadiaWorkspaceScene {
         if self.revealed {
             self.screen.tick();
             self.tick_bubble();
-            self.poll_keyboard();
             self.poll_popup();
             self.poll_submenu();
             self.poll_input();
@@ -269,12 +255,16 @@ impl ArcadiaWorkspaceScene {
         let cursor = cursor.clamp(0, items - 1);
 
         let scroller = self.scroller.get_or_insert_with(Scroller::new);
-        if !unsafe { scroller.setup_list(view_handle, SCROLL_GROUP, items, cursor, true, binder_ptr) } {
-            warn!(
-                "Workspace scroller got nothing, group '{}' is probably not in the bflyt",
-                debug_name(SCROLL_GROUP)
-            );
-            return;
+        if scroller.is_empty() {
+            if !unsafe { scroller.setup_list(view_handle, SCROLL_GROUP, items, cursor, true, binder_ptr) } {
+                warn!(
+                    "Workspace scroller got nothing, group '{}' is probably not in the bflyt",
+                    debug_name(SCROLL_GROUP)
+                );
+                return;
+            }
+        } else {
+            unsafe { scroller.resize(items, cursor) };
         }
 
         self.last_index = ITEM_NONE;
@@ -560,65 +550,14 @@ impl ArcadiaWorkspaceScene {
             NameFor::Rename(index) => self.workspaces.get(index).map(|entry| entry.name.clone()),
         };
 
-        let slot = Arc::new(Mutex::new(KeyboardSlot::Running));
-        let thread_slot = Arc::clone(&slot);
+        let answer = unsafe { keyboard::ask("Workspace name", "Workspace name", MAX_NAME_LENGTH as u32, initial.as_deref()) };
 
-        let spawned = std::thread::Builder::new().stack_size(0x8000).spawn(move || {
-            let answer = unsafe { keyboard::ask("Workspace name", "Workspace name", MAX_NAME_LENGTH as u32, initial.as_deref()) };
-            if let Ok(mut held) = thread_slot.lock() {
-                *held = match answer {
-                    Some(name) => KeyboardSlot::Name(name),
-                    None => KeyboardSlot::Cancelled,
-                };
-            }
-        });
-
-        if spawned.is_err() {
-            warn!("Workspace: could not start the keyboard thread");
-            return;
-        }
-
-        self.keyboard = Some(slot);
-        self.keyboard_for = what;
-        self.enter_waiting(Waiting::Keyboard);
-        info!("Workspace: keyboard opened on its own thread");
-    }
-
-    fn poll_keyboard(&mut self) {
-        if self.waiting != Waiting::Keyboard {
-            return;
-        }
-        self.waiting_frames += 1;
-
-        let answer = match self.keyboard.as_ref() {
-            Some(slot) => {
-                match slot.lock() {
-                    Ok(mut held) => {
-                        match std::mem::replace(&mut *held, KeyboardSlot::Running) {
-                            KeyboardSlot::Running => None,
-                            other => Some(other),
-                        }
-                    },
-
-                    Err(_) => Some(KeyboardSlot::Cancelled),
-                }
-            },
-            None => Some(KeyboardSlot::Cancelled),
-        };
-
-        let Some(answer) = answer else {
-            return;
-        };
-
-        self.keyboard = None;
-        self.leave_waiting();
-
-        let KeyboardSlot::Name(name) = answer else {
+        let Some(name) = answer else {
             debug!("Workspace: keyboard cancelled, nothing written");
             return;
         };
 
-        match self.keyboard_for {
+        match what {
             NameFor::Create => self.create_workspace(&name),
             NameFor::Rename(index) => self.rename_workspace(index, &name),
         }

@@ -24,7 +24,7 @@ static BUTTON_NAME_FMT: &[u8] = b"set_parts_btn%02d\0";
 
 static BUTTON_TEXT_PANE: &[u8] = b"set_txt_val\0";
 
-static ROWS: [&str; 3] = ["Mod manager", "Workspace", "Configuration"];
+static ROWS: [&str; 3] = ["Mod Manager", "Workspace", "Configuration"];
 
 const HEADER_SCENE: &str = "";
 

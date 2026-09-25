@@ -180,7 +180,12 @@ pub mod workspaces {
 
     pub fn get_active_workspace() -> Result<String, WorkspaceError> {
         let workspace_list = get_list()?;
-        let workspace_name: String = GLOBAL_CONFIG.lock().unwrap().get_field("workspace")?;
+        let mut storage = GLOBAL_CONFIG.lock().unwrap();
+        let mut workspace_name: String = storage.get_field("workspace")?;
+        if !workspace_list.contains_key(&workspace_name) {
+            workspace_name = "Default".to_string();
+            storage.set_field("workspace", &workspace_name)?;
+        }
         workspace_list
             .get(&workspace_name)
             .map(|x| x.to_owned())
@@ -204,11 +209,14 @@ pub mod workspaces {
         // Reinsert the preset name with the new workspace name
         workspace_list.insert(to.to_string(), preset_name);
         // Overwrite the list with the changes
-        GLOBAL_CONFIG
-            .lock()
-            .unwrap()
-            .set_field_json("workspace_list", &workspace_list)
-            .map_err(WorkspaceError::ConfigError)
+        let mut storage = GLOBAL_CONFIG.lock().unwrap();
+        storage.set_field_json("workspace_list", &workspace_list)?;
+
+        if storage.get_field::<String>("workspace")? == from {
+            storage.set_field("workspace", to)?;
+        }
+
+        Ok(())
     }
 
     pub fn delete_workspace(name: &str) -> Result<(), WorkspaceError> {

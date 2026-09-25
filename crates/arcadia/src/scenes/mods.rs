@@ -1,8 +1,12 @@
 use std::{
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     ffi::CStr,
     fs,
-    ptr::{self, addr_of_mut, NonNull},
+    ptr::{addr_of_mut, NonNull},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
 };
 
 use smash_arc::Hash40;
@@ -34,6 +38,10 @@ static VTABLE: SceneVtable = SceneVtable::of::<ArcadiaScene>();
 static BINDER_VTABLE: RowBinderVtable = RowBinderVtable::new(bind_row);
 
 static DESC_BINDER_VTABLE: RowBinderVtable = RowBinderVtable::new(bind_desc_line);
+
+static FRAME: AtomicU64 = AtomicU64::new(0);
+static RETIRED: Mutex<VecDeque<(u64, MemoryTexture)>> = Mutex::new(VecDeque::new());
+const RETIRE_FRAMES: u64 = 10;
 
 const LAYOUT_PATH: &str = "ui/layout/menu/arcadia/arcadia/layout.arc";
 
@@ -67,6 +75,7 @@ static TAB_PANE: &[u8] = b"set_txt_list\0";
 
 static TAB_ANIM_ALL: &[u8] = b"cat_com_mode_all\0";
 static TAB_ANIM_ONE: &[u8] = b"cat_com\0";
+const TAB_ANIM_END: f32 = 9.0;
 
 static MOVIE_PARTS: &[u8] = b"set_movie_preview\0";
 static MOVIE_PIC_PANE: &[u8] = b"set_rep_movie\0";
@@ -203,6 +212,9 @@ unsafe impl SceneImpl for ArcadiaScene {
     }
 
     fn update(&mut self, _changer: &mut SceneChanger) {
+        FRAME.fetch_add(1, Ordering::Relaxed);
+        Self::free_retired();
+
         match self.screen.poll() {
             ScreenEvent::LayoutReady => {
                 self.build_widgets();
@@ -234,7 +246,7 @@ unsafe impl SceneImpl for ArcadiaScene {
         match self.screen.exit_step() {
             ExitStep::Waiting => false,
             ExitStep::Teardown => {
-                self.preview = None;
+                self.retire_preview();
                 self.desc_scroller = None;
                 self.scroller = None;
                 self.movie_root = None;
@@ -323,9 +335,13 @@ impl ArcadiaScene {
         let items = self.filtered.len() as i32;
 
         let scroller = self.scroller.get_or_insert_with(Scroller::new);
-        if !unsafe { scroller.setup_list(view_handle, SCROLL_GROUP, items, 0, true, binder_ptr) } {
-            warn!("Mod manager scroller got nothing, group '{}' is probably not in the bflyt", debug_name(SCROLL_GROUP));
-            return;
+        if scroller.is_empty() {
+            if !unsafe { scroller.setup_list(view_handle, SCROLL_GROUP, items, 0, true, binder_ptr) } {
+                warn!("Mod manager scroller got nothing, group '{}' is probably not in the bflyt", debug_name(SCROLL_GROUP));
+                return;
+            }
+        } else {
+            unsafe { scroller.resize(items, 0) };
         }
 
         self.last_index = ITEM_NONE;
@@ -376,7 +392,7 @@ impl ArcadiaScene {
 
         if let Some(payload) = self.screen.root_mut().map(|cell| cell.view_payload()) {
             let tag: &[u8] = if self.tab == 0 { TAB_ANIM_ALL } else { TAB_ANIM_ONE };
-            unsafe { play_animation(payload, tag, ANIM_FRAME_STILL) };
+            unsafe { play_animation(payload, tag, TAB_ANIM_END) };
         }
 
         debug!("Mod manager tab '{}' step {} rows {}", name, step, self.filtered.len());
@@ -644,7 +660,7 @@ impl ArcadiaScene {
             },
         };
 
-        let Some(texture) = (unsafe { MemoryTexture::create(&decoded.bntx, ptr::null_mut()) }) else {
+        let Some(texture) = (unsafe { MemoryTexture::create(&decoded.bntx) }) else {
             warn!("Mod manager: no memory for a {} byte preview", decoded.bntx.len());
             return;
         };
@@ -662,7 +678,24 @@ impl ArcadiaScene {
 
     fn hide_preview(&mut self) {
         self.set_preview_visible(false);
-        self.preview = None;
+        self.retire_preview();
+    }
+
+    fn retire_preview(&mut self) {
+        if let Some(texture) = self.preview.take() {
+            if let Ok(mut retired) = RETIRED.lock() {
+                retired.push_back((FRAME.load(Ordering::Relaxed), texture));
+            }
+        }
+    }
+
+    fn free_retired() {
+        let now = FRAME.load(Ordering::Relaxed);
+        if let Ok(mut retired) = RETIRED.lock() {
+            while retired.front().is_some_and(|(at, _)| now.saturating_sub(*at) >= RETIRE_FRAMES) {
+                retired.pop_front();
+            }
+        }
     }
 
     fn set_preview_visible(&mut self, visible: bool) {

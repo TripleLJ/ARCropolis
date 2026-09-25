@@ -375,15 +375,25 @@ unsafe extern "C" fn bind_row(binder: *mut RowBinder, item: i32, row_view: *mut 
         }
     }
 
-    bind_value(this, row);
+    let slot = {
+        let Some(scroller) = this.scroller.as_ref() else {
+            return;
+        };
+        let Some(slot) = scroller.slot_for_view(row_view) else {
+            return;
+        };
+        slot
+    };
+
+    bind_value(this, row, slot);
 }
 
-unsafe fn bind_value(this: &mut ArcadiaConfigScene, row: usize) {
+unsafe fn bind_value(this: &mut ArcadiaConfigScene, row: usize, slot: usize) {
     let Some(cell) = this.screen.root_mut() else {
         return;
     };
 
-    let Some(mut holder) = PartsHandle::get_checked(cell.view_handle(), ROW_VALUE_PART, row as u64) else {
+    let Some(mut holder) = PartsHandle::get_checked(cell.view_handle(), ROW_VALUE_PART, slot as u64) else {
         return;
     };
     let holder_view = holder.view_handle();

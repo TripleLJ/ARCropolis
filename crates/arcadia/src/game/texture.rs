@@ -2,7 +2,7 @@ use std::ptr;
 
 use super::{
     alloc,
-    layout::{self, PanePayload, Picture},
+    layout::Picture,
 };
 use crate::offsets;
 
@@ -55,12 +55,12 @@ unsafe fn picture_set_texture_info(picture: *mut Picture, texture_info: *const u
 pub struct MemoryTexture {
     wrapper: *mut TextureWrapper,
     record: *mut TextureRecord,
-
-    pane_payload: *mut PanePayload,
 }
 
+unsafe impl Send for MemoryTexture {}
+
 impl MemoryTexture {
-    pub unsafe fn create(bntx: &[u8], pane_payload: *mut PanePayload) -> Option<MemoryTexture> {
+    pub unsafe fn create(bntx: &[u8]) -> Option<MemoryTexture> {
         let buffer = alloc::je_aligned_alloc(BNTX_ALIGNMENT, bntx.len());
         if buffer.is_null() {
             return None;
@@ -87,7 +87,7 @@ impl MemoryTexture {
 
         texture_resource_setup_gpu(record);
 
-        Some(MemoryTexture { wrapper, record, pane_payload })
+        Some(MemoryTexture { wrapper, record })
     }
 
     pub unsafe fn slot_registered(&self) -> bool {
@@ -106,7 +106,6 @@ impl MemoryTexture {
 impl Drop for MemoryTexture {
     fn drop(&mut self) {
         unsafe {
-            layout::restore_original_texture(self.pane_payload);
             texture_resource_reset(self.record);
             alloc::free_default(self.record.cast::<u8>());
             alloc::free_default(self.wrapper.cast::<u8>());

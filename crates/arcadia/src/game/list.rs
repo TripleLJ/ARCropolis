@@ -1,6 +1,6 @@
 use std::ptr::{self, addr_of_mut};
 
-use super::{alloc, layout::LayoutViewHandle, vtable_call, StdFunction, VTABLE_SLOT_DELETING_DTOR, VTABLE_SLOT_SET_FOCUS};
+use super::{alloc, layout::{LayoutViewHandle, Pane}, vtable_call, StdFunction, VTABLE_SLOT_DELETING_DTOR, VTABLE_SLOT_SET_FOCUS};
 use crate::offsets;
 
 pub use super::INDEX_NONE as ITEM_NONE;
@@ -206,7 +206,8 @@ impl RowBinderVtable {
 pub struct ScrollerRow {
     unk0: u64,
     view: LayoutViewHandle,
-    extra: [u8; 0x10],
+    extra: u64,
+    pane_holder: *mut *mut Pane,
     unk28: [u8; 0x30 - 0x28],
     item_index: i32,
 }
@@ -214,6 +215,7 @@ pub struct ScrollerRow {
 const _: () = {
     assert!(std::mem::offset_of!(ScrollerRow, view) == 0x08);
     assert!(std::mem::offset_of!(ScrollerRow, extra) == 0x18);
+    assert!(std::mem::offset_of!(ScrollerRow, pane_holder) == 0x20);
     assert!(std::mem::offset_of!(ScrollerRow, item_index) == 0x30);
 };
 
@@ -224,19 +226,25 @@ pub struct ListScroller {
     enabled: u8,
     active: u8,
     focused: u8,
-    unk17: [u8; 0x160 - 0x17],
+    unk17: [u8; 0x34 - 0x17],
+    params_item_count: i32,
+    unk38: [u8; 0x160 - 0x38],
     binder: *mut RowBinder,
     row_pool: *mut *mut ScrollerRow,
     unk170: [u8; 0x288 - 0x170],
     item_count: i32,
     column_count: i32,
-    unk290: [u8; 0x2a4 - 0x290],
+    page_count: i32,
+    unk294: [u8; 0x29c - 0x294],
+    top_index: i32,
+    unk2a0: [u8; 0x2a4 - 0x2a0],
     current_index: i32,
     unk2a8: [u8; 0x2b4 - 0x2a8],
     decided_index: i32,
     edge_direction: i32,
     edge_pressed: u8,
-    unk2bd: [u8; 0x2c4 - 0x2bd],
+    unk2bd: [u8; 0x2c0 - 0x2bd],
+    pool_size: i32,
     row_count: i32,
     unk2c8: [u8; 0x315 - 0x2c8],
     can_scroll: u8,
@@ -244,7 +252,11 @@ pub struct ListScroller {
 
 const _: () = {
     assert!(std::mem::offset_of!(ListScroller, row_pool) == 0x168);
+    assert!(std::mem::offset_of!(ListScroller, params_item_count) == 0x34);
     assert!(std::mem::offset_of!(ListScroller, item_count) == 0x288);
+    assert!(std::mem::offset_of!(ListScroller, page_count) == 0x290);
+    assert!(std::mem::offset_of!(ListScroller, top_index) == 0x29c);
+    assert!(std::mem::offset_of!(ListScroller, pool_size) == 0x2c0);
     assert!(std::mem::offset_of!(ListScroller, column_count) == 0x28c);
     assert!(std::mem::offset_of!(ListScroller, current_index) == 0x2a4);
     assert!(std::mem::offset_of!(ListScroller, edge_direction) == 0x2b8);
@@ -272,6 +284,36 @@ impl Scroller {
     pub unsafe fn setup(&mut self, view_handle: *mut LayoutViewHandle, group_name: &[u8], params: &mut ListScrollerParams, binder: *mut RowBinder) {
         params.point_at_self();
         list_scroller_setup(&mut *self.holder, view_handle, group_name.as_ptr(), params, binder);
+    }
+
+    pub unsafe fn resize(&mut self, items: i32, cursor: i32) {
+        let Some(scroller) = self.as_ptr().as_mut() else {
+            return;
+        };
+        let rows = items.min(scroller.pool_size);
+
+        for slot in rows.max(0)..scroller.row_count {
+            let row = *scroller.row_pool.add(slot as usize);
+            if row.is_null() {
+                continue;
+            }
+            if let Some(pane) = (*row).pane_holder.as_ref().and_then(|holder| holder.as_mut()) {
+                pane.set_visible(false);
+            }
+            (*row).item_index = ITEM_NONE;
+        }
+
+        scroller.item_count = items;
+        scroller.params_item_count = items;
+        let columns = scroller.column_count;
+        scroller.page_count = if columns > 1 { (items + columns - 1) / columns } else { items };
+        scroller.row_count = rows;
+        scroller.top_index = 0;
+
+        if items > 0 {
+            self.set_current_index(cursor, JUMP_IMMEDIATE, CLAMP_TO_LIST);
+        }
+        self.refresh_rows();
     }
 
     pub unsafe fn set_current_index(&mut self, index: i32, immediate: u32, validate: u32) {
