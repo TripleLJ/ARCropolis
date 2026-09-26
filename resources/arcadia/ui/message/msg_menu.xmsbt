@@ -54,4 +54,6 @@
   <entry label="mnu_arcadia_ctx_edit"><text>Edit mods</text></entry>
   <entry label="mnu_arcadia_ctx_rename"><text>Rename</text></entry>
   <entry label="mnu_arcadia_ctx_delete"><text>Delete</text></entry>
+
+  <entry label="mnu_arcadia_pop_ws_delete" base64="true"><text>DgABAAEAAgAAzQ0ACgANAAoARABlAGwAZQB0AGUAIAB0AGgAaQBzACAAdwBvAHIAawBzAHAAYQBjAGUAPwA=</text></entry>
 </xmsbt>

@@ -208,14 +208,26 @@ pub struct ScrollerRow {
     view: LayoutViewHandle,
     extra: u64,
     pane_holder: *mut *mut Pane,
-    unk28: [u8; 0x30 - 0x28],
+    button: *mut usize,
     item_index: i32,
+}
+
+const ROW_BUTTON_SLOT_SET_ENABLED: usize = 0x1f8 / 8;
+
+unsafe fn set_row_button_enabled(row: *mut ScrollerRow, enabled: bool) {
+    let button = (*row).button;
+    if button.is_null() {
+        return;
+    }
+    let set_enabled: unsafe extern "C" fn(*mut usize, bool) = vtable_call(button.cast(), ROW_BUTTON_SLOT_SET_ENABLED);
+    set_enabled(button, enabled);
 }
 
 const _: () = {
     assert!(std::mem::offset_of!(ScrollerRow, view) == 0x08);
     assert!(std::mem::offset_of!(ScrollerRow, extra) == 0x18);
     assert!(std::mem::offset_of!(ScrollerRow, pane_holder) == 0x20);
+    assert!(std::mem::offset_of!(ScrollerRow, button) == 0x28);
     assert!(std::mem::offset_of!(ScrollerRow, item_index) == 0x30);
 };
 
@@ -291,8 +303,9 @@ impl Scroller {
             return;
         };
         let rows = items.min(scroller.pool_size);
+        let was = scroller.row_count;
 
-        for slot in rows.max(0)..scroller.row_count {
+        for slot in rows.max(0)..was {
             let row = *scroller.row_pool.add(slot as usize);
             if row.is_null() {
                 continue;
@@ -300,7 +313,14 @@ impl Scroller {
             if let Some(pane) = (*row).pane_holder.as_ref().and_then(|holder| holder.as_mut()) {
                 pane.set_visible(false);
             }
+            set_row_button_enabled(row, false);
             (*row).item_index = ITEM_NONE;
+        }
+        for slot in was.max(0)..rows {
+            let row = *scroller.row_pool.add(slot as usize);
+            if !row.is_null() {
+                set_row_button_enabled(row, true);
+            }
         }
 
         scroller.item_count = items;

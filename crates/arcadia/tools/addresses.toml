@@ -310,6 +310,16 @@ addr = 0x710532e820
 addr_1305 = 0x710532f820
 kind = "adrp_ldr"
 anchor = 0x7103367320
+[[entry]]
+name = "popup_populate_params"
+addr = 0x71032ed9c0
+addr_1305 = 0x71032edf70
+kind = "fn"
+[[entry]]
+name = "popup_open_from_params"
+addr = 0x71032f1600
+addr_1305 = 0x71032f1bb0
+kind = "fn"
 
 # texture from memory
 [[entry]]

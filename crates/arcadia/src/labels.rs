@@ -19,6 +19,8 @@ pub const CTX_EDIT: &str = "mnu_arcadia_ctx_edit";
 pub const CTX_RENAME: &str = "mnu_arcadia_ctx_rename";
 pub const CTX_DELETE: &str = "mnu_arcadia_ctx_delete";
 
+pub const POP_WS_DELETE: &str = "mnu_arcadia_pop_ws_delete";
+
 static HUB_FOOTERS: [&str; 3] = ["mnu_arcadia_ftr_hub_0", "mnu_arcadia_ftr_hub_1", "mnu_arcadia_ftr_hub_2"];
 
 static CONFIG_FOOTERS: [&str; 8] = [

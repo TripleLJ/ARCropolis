@@ -225,6 +225,14 @@ pub fn g_popup_holder() -> usize {
     0x532f820
 }
 
+pub fn popup_populate_params() -> usize {
+    0x32edf70
+}
+
+pub fn popup_open_from_params() -> usize {
+    0x32f1bb0
+}
+
 pub fn texture_resource_construct() -> usize {
     0x37a31e0
 }

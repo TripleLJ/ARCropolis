@@ -253,16 +253,23 @@ impl ArcadiaConfigScene {
             return;
         }
 
+        let last_row = ROW_COUNT as i32 - 1;
+
         if self.footer_button_lit {
-            if up {
+            if up || down {
+                let target = if up { last_row } else { 0 };
+                if let Some(scroller) = self.scroller.as_mut() {
+                    unsafe { scroller.set_current_index(target, JUMP_IMMEDIATE, CLAMP_TO_LIST) };
+                }
+                self.last_index = target;
                 self.focus_footer_button(false);
             }
             return;
         }
 
-        let last_row = ROW_COUNT as i32 - 1;
         let down_at_end = down && self.last_index == last_row && (current == last_row || current == 0);
-        if past_bottom || down_at_end {
+        let up_at_top = up && self.last_index == 0 && (current == 0 || current == last_row);
+        if past_bottom || down_at_end || up_at_top {
             if current != last_row {
                 if let Some(scroller) = self.scroller.as_mut() {
                     unsafe { scroller.set_current_index(last_row, JUMP_IMMEDIATE, CLAMP_TO_LIST) };

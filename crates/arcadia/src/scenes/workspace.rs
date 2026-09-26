@@ -646,7 +646,7 @@ impl ArcadiaWorkspaceScene {
         self.popup_target = index;
         self.popup_opened = false;
 
-        if !unsafe { popup::open(popup::POPUP_DELETE_CONFIRM, self.popup_name.as_ptr()) } {
+        if !unsafe { popup::open_with_body(popup::POPUP_DELETE_CONFIRM, labels::POP_WS_DELETE, self.popup_name.as_ptr()) } {
             warn!("Workspace: no popup manager, delete of '{}' does nothing", name);
             return;
         }
