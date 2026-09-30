@@ -1,0 +1,23 @@
+[package]
+name = "arcadia"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+skyline = "0.6"
+log = "0.4.19"
+config = { path = "../config" }
+patterns = { path = "../patterns" }
+smash-arc = { version = "0.6.0", default-features = false }
+toml = "0.5.11"
+serde = { version = "1", features = ["derive"] }
+thiserror = "1.0.43"
+camino = "1"
+# preview.webp -> bntx at runtime
+bntx = { git = "https://github.com/ScanMountGoat/bntx", rev = "87fffc7d17238cb07ff93ec75e0a7b5db15f4683", version = "0.1.0" }
+image-webp = "0.2.4"
+image_dds = { version = "0.7", default-features = false, features = ["ddsfile"] }
+tegra_swizzle = "0.4.0"
+
+[patch.crates-io]
+native-tls = { git = "https://github.com/skyline-rs/rust-native-tls", rev = "f202fca"  }

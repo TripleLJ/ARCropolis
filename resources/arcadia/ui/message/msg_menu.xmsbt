@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Every word the Arcadia screens put on the shared header bar and its description strip.
+
+  The bar takes msbt labels, never text, so the strings live here and ARCropolis merges them
+  into the game's own ui/message/msg_menu.msbt at boot. The plugin only ever hands the game
+  these names, see src/arcadia/labels.rs.
+
+  One label per row even where two rows say the same thing: the game's setters skip a write
+  when the label has not changed, so sharing one would leave the old row's line on screen.
+
+  No region suffix on the file name on purpose. The arc has a single ui/message/msg_menu.msbt
+  and these strings are English only, so we want them in every region rather than in us_en
+  alone. Keep every entry on one line, a newline in here would land in the text as-is.
+-->
+<xmsbt>
+  <entry label="mnu_arcadia_hdr_mode"><text>ARCropolis</text></entry>
+
+  <entry label="mnu_arcadia_hdr_scene_mods"><text>Mods</text></entry>
+  <entry label="mnu_arcadia_hdr_scene_config"><text>Configuration</text></entry>
+  <entry label="mnu_arcadia_hdr_scene_level"><text>Logging level</text></entry>
+  <entry label="mnu_arcadia_hdr_scene_workspace"><text>Workspaces</text></entry>
+  <entry label="mnu_arcadia_hdr_scene_notes"><text>Update notes</text></entry>
+
+  <entry label="mnu_arcadia_ftr_hub_0"><text>Enable or disable mods and see their previews</text></entry>
+  <entry label="mnu_arcadia_ftr_hub_1"><text>Switch between mod workspaces</text></entry>
+  <entry label="mnu_arcadia_ftr_hub_2"><text>ARCropolis settings</text></entry>
+
+  <entry label="mnu_arcadia_ftr_cfg_0"><text>How much ARCropolis writes to the log, takes effect after a restart</text></entry>
+  <entry label="mnu_arcadia_ftr_cfg_1"><text>Look for a new ARCropolis on boot, takes effect after a restart</text></entry>
+  <entry label="mnu_arcadia_ftr_cfg_2"><text>Offer beta builds as well as releases, takes effect after a restart</text></entry>
+  <entry label="mnu_arcadia_ftr_cfg_3"><text>Also write the log to a file on the SD card</text></entry>
+  <entry label="mnu_arcadia_ftr_cfg_4"><text>Go straight past the opening movie, takes effect after a restart</text></entry>
+  <entry label="mnu_arcadia_ftr_cfg_5"><text>Go straight past the opening movie and the title screen, takes effect after a restart</text></entry>
+  <entry label="mnu_arcadia_ftr_cfg_6"><text>Use the old mod discovery instead of the current one, takes effect after a restart</text></entry>
+  <entry label="mnu_arcadia_ftr_cfg_7"><text>Show each mod's folder name instead of the name in its info.toml</text></entry>
+
+  <entry label="mnu_arcadia_ftr_lvl_0"><text>Everything, including every file the loader touches. Very noisy</text></entry>
+  <entry label="mnu_arcadia_ftr_lvl_1"><text>Extra detail for tracking a problem down</text></entry>
+  <entry label="mnu_arcadia_ftr_lvl_2"><text>What the loader is doing, one line per step</text></entry>
+  <entry label="mnu_arcadia_ftr_lvl_3"><text>Only things that look wrong. The default</text></entry>
+  <entry label="mnu_arcadia_ftr_lvl_4"><text>Only failures</text></entry>
+  <entry label="mnu_arcadia_ftr_lvl_5"><text>Nothing at all</text></entry>
+
+  <entry label="mnu_arcadia_ftr_ws_create"><text>Make a new workspace with no mods turned on</text></entry>
+  <entry label="mnu_arcadia_ftr_ws_default"><text>The workspace ARCropolis starts with. It cannot be renamed or deleted</text></entry>
+  <entry label="mnu_arcadia_ftr_ws_named"><text>A makes this workspace active, X edits its mods, renames it or deletes it</text></entry>
+  <entry label="mnu_arcadia_ftr_ws_bubble"><text>A picks one, B closes the menu. Editing mods does not make this workspace active</text></entry>
+
+  <entry label="mnu_arcadia_ftr_update"><text>Update</text></entry>
+  <entry label="mnu_arcadia_ftr_notes_update"><text>Scroll with the stick or the d-pad. A installs the update, B keeps this version</text></entry>
+  <entry label="mnu_arcadia_ftr_notes_read"><text>Scroll with the stick or the d-pad. A or B closes the notes</text></entry>
+
+  <entry label="mnu_arcadia_ctx_edit"><text>Edit mods</text></entry>
+  <entry label="mnu_arcadia_ctx_rename"><text>Rename</text></entry>
+  <entry label="mnu_arcadia_ctx_delete"><text>Delete</text></entry>
+
+  <entry label="mnu_arcadia_pop_ws_delete" base64="true"><text>DgABAAEAAgAAzQ0ACgANAAoARABlAGwAZQB0AGUAIAB0AGgAaQBzACAAdwBvAHIAawBzAHAAYQBjAGUAPwA=</text></entry>
+</xmsbt>

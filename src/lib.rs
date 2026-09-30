@@ -3,7 +3,7 @@
 #![feature(proc_macro_hygiene)]
 #![feature(if_let_guard)]
 #![feature(map_try_insert)] // for not overwriting previously stored hashes
-#![feature(vec_into_raw_parts)]
+#![feature(rwlock_data_ptr)]
 #![feature(string_remove_matches)]
 // #![feature(fs_try_exists)]
 #![feature(int_roundings)]
@@ -28,6 +28,7 @@ mod fs;
 mod fuse;
 mod hashes;
 mod logging;
+mod modfs;
 mod offsets;
 mod replacement;
 mod resource;
@@ -43,9 +44,9 @@ use crate::utils::save::{get_language_id_in_savedata, get_system_region_from_lan
 
 use config::{GLOBAL_CONFIG, REGION};
 
-pub static mut GLOBAL_FILESYSTEM: RwLock<GlobalFilesystem> = RwLock::new(GlobalFilesystem::Uninitialized);
+pub static GLOBAL_FILESYSTEM: RwLock<GlobalFilesystem> = RwLock::new(GlobalFilesystem::Uninitialized);
 
-static mut NEWS_DATA: LazyLock<RwLock<HashMap<String, String>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
+static NEWS_DATA: LazyLock<RwLock<HashMap<String, String>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
 
 #[macro_export]
 macro_rules! reg_x {
@@ -120,21 +121,68 @@ impl PathExtension for Path {
                 return Ok(hash);
             }
         }
-        let mut path = self
-            .as_os_str()
-            .to_str()
-            .ok_or(InvalidOsStrError)?
-            .to_lowercase()
-            .replace(';', ":")
-            .replace(".mp4", ".webm")
-            .replace(".lua", ".lc");
-
-        if let Some(regional_idx) = path.find('+') {
-            path.replace_range(regional_idx..regional_idx + 6, "")
+        let raw = self.as_os_str().to_str().ok_or(InvalidOsStrError)?;
+        if let Some(hash) = fast_smash_hash(raw) {
+            return Ok(hash);
         }
 
-        Ok(Hash40::from(path.trim_start_matches('/')))
+        Ok(slow_smash_hash(raw))
     }
+}
+
+fn slow_smash_hash(raw: &str) -> Hash40 {
+    let mut path = raw.to_lowercase().replace(';', ":").replace(".mp4", ".webm").replace(".lua", ".lc");
+
+    if let Some(regional_idx) = path.find('+') {
+        path.replace_range(regional_idx..regional_idx + 6, "")
+    }
+
+    Hash40::from(path.trim_start_matches('/'))
+}
+
+fn fast_smash_hash(raw: &str) -> Option<Hash40> {
+    const MAX_INPUT: usize = 512;
+    let bytes = raw.as_bytes();
+    if !bytes.is_ascii() || bytes.len() > MAX_INPUT {
+        return None;
+    }
+
+    // ".mp4" becomes ".webm", so the output can outgrow the input by a quarter at most
+    let mut buf = [0u8; MAX_INPUT + MAX_INPUT / 4 + 8];
+    let mut len = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        let rest = &bytes[i..];
+        if rest.len() >= 4 && rest[0] == b'.' && rest[1..4].eq_ignore_ascii_case(b"mp4") {
+            buf[len..len + 5].copy_from_slice(b".webm");
+            len += 5;
+            i += 4;
+            continue;
+        }
+        if rest.len() >= 4 && rest[0] == b'.' && rest[1..4].eq_ignore_ascii_case(b"lua") {
+            buf[len..len + 3].copy_from_slice(b".lc");
+            len += 3;
+            i += 4;
+            continue;
+        }
+        let byte = bytes[i].to_ascii_lowercase();
+        buf[len] = if byte == b';' { b':' } else { byte };
+        len += 1;
+        i += 1;
+    }
+
+    // A regional suffix like +us_en is cut out, the slow path panics when fewer than 6 bytes follow the plus so leave that case to it
+    if let Some(plus) = buf[..len].iter().position(|&b| b == b'+') {
+        if plus + 6 > len {
+            return None;
+        }
+        buf.copy_within(plus + 6..len, plus);
+        len -= 6;
+    }
+
+    let start = buf[..len].iter().position(|&b| b != b'/').unwrap_or(len);
+    let normalized = std::str::from_utf8(&buf[start..len]).ok()?;
+    Some(Hash40::from(normalized))
 }
 
 /// Basic code for getting a hash40 from a path, ignoring things like if it exists
@@ -168,133 +216,167 @@ fn init_account() {
     unsafe { nn::account::Initialize() }
 }
 
-#[cfg(feature = "online")]
+#[cfg(feature = "ui")]
 fn check_for_changelog() {
-    if !crate::utils::env::is_emulator() {
-        if let Ok(changelog) = std::fs::read_to_string("sd:/ultimate/arcropolis/changelog.toml") {
-            match toml::from_str(&changelog) {
-                Ok(changelog) => {
-                    menus::display_update_page(&changelog);
-                    std::fs::remove_file("sd:/ultimate/arcropolis/changelog.toml").unwrap();
-                },
-                Err(_) => {
-                    warn!("Changelog could not be parsed. Is the file malformed?");
-                },
+    let Ok(changelog) = std::fs::read_to_string("sd:/ultimate/arcropolis/changelog.toml") else {
+        return;
+    };
+
+    match toml::from_str::<arcadia::data::changelog::MainEntry>(&changelog) {
+        Ok(changelog) => {
+            arcadia::show_changelog(changelog, false);
+
+            if let Err(err) = std::fs::remove_file("sd:/ultimate/arcropolis/changelog.toml") {
+                warn!("Could not delete the changelog file, it will show again on the next boot: {}", err);
             }
-        }
+        },
+        Err(_) => {
+            warn!("Changelog could not be parsed. Is the file malformed?");
+        },
     }
 }
 
+#[allow(dead_code)]
 #[cfg(feature = "online")]
 fn get_news_data() {
     skyline::install_hook!(msbt_text);
     match minreq::get("https://coolsonickirby.com/arc/news").send() {
         Ok(resp) => match resp.json::<HashMap<String, String>>() {
-            Ok(info) => unsafe { NEWS_DATA.write().unwrap().extend(info) },
+            Ok(info) => NEWS_DATA.write().unwrap().extend(info),
             Err(err) => println!("{:?}", err),
         },
         Err(err) => println!("{:?}", err),
     }
 }
 
-#[cfg(feature = "ui")]
-fn check_input_on_boot() {
-    if !crate::utils::env::is_emulator() {
-        // Open the ARCropolis menu if Minus is held before mod discovery
-        if ninput::any::is_down(ninput::Buttons::PLUS) {
-            menus::show_main_menu();
-        }
-    }
-}
+// #[cfg(feature = "ui")]
+// fn check_input_on_boot() {
+//         // Open the ARCropolis menu if Minus is held before mod discovery
+//     if !utils::env::is_emulator() && ninput::any::is_down(ninput::Buttons::PLUS) {
+//         arcadia::request(arcadia::Request::Hub);
+//     }
+// }
 
 #[cfg(feature = "online")]
 fn check_for_update() {
     // Changed to pre because prerelease doesn't compile
     if !semver::Version::from_str(env!("CARGO_PKG_VERSION")).unwrap().pre.is_empty() {
-        update::check_for_updates(config::beta_updates(), |_, _, _| true);
+        if let Some(pending) = update::find_update(config::beta_updates()) {
+            update::install(pending);
+        }
     }
 
-    if config::auto_update_enabled() {
-        update::check_for_updates(config::beta_updates(), |update_kind, date, description| {
-            let (contributors, entries) = menus::get_entries_from_md(description);
-            let main_entry = menus::MainEntry {
-                title: format!("ARCropolis update: Ver. {}", update_kind),
-                date,
-                description: "A new version of ARCropolis was detected!<br/>Please read the following changelog.".to_string(),
-                entries,
-                contributors,
-            };
+    #[cfg(feature = "ui")]
+    offer_update();
+}
 
-            menus::display_update_page(&main_entry)
-            // skyline_web::Dialog::no_yes(format!("{} has been detected. Do you want to install it?", update_kind))
-        });
+#[cfg(all(feature = "online", feature = "ui"))]
+fn offer_update() {
+    if !config::auto_update_enabled() {
+        return;
     }
+
+    let Some(pending) = update::find_update(config::beta_updates()) else {
+        return;
+    };
+
+    let (contributors, entries) = arcadia::data::changelog::from_release_markdown(&pending.body);
+    let notes = arcadia::data::changelog::MainEntry {
+        title: format!("ARCropolis update: Ver. {}", pending.header_text),
+        date: pending.date.clone(),
+        description: "A new version of ARCropolis was detected!<br/>Please read the following changelog.".to_string(),
+        entries,
+        contributors,
+    };
+
+    arcadia::show_changelog(notes, true);
+
+    if !wait_for_changelog_choice() {
+        return;
+    }
+
+    arcadia::set_update_progress(arcadia::UpdateProgress::Downloading);
+
+    if !update::install(pending) {
+        arcadia::set_update_progress(arcadia::UpdateProgress::Failed);
+    }
+}
+
+#[cfg(all(feature = "online", feature = "ui"))]
+fn wait_for_changelog_choice() -> bool {
+    const POLL_MS: u64 = 500;
+    const POLLS: u32 = 30 * 60 * 1000 / POLL_MS as u32;
+
+    for _ in 0..POLLS {
+        if let Some(choice) = arcadia::take_changelog_choice() {
+            return choice;
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(POLL_MS));
+    }
+
+    info!("Nobody answered the update offer, dropping it for this boot");
+    false
 }
 
 #[skyline::hook(offset = offsets::initial_loading(), inline)]
 fn initial_loading(_ctx: &InlineCtx) {
-    #[cfg(feature = "online")]
+
+    #[cfg(feature = "ui")]
     check_for_changelog();
 
-    // Begin checking if there is an update to do. We do this in a separate thread so that we can install the hooks while we are waiting on GitHub response
-    // #[cfg(feature = "online")]
-    // let _updater = std::thread::Builder::new()
-    //     .stack_size(0x10000)
-    //     .spawn(|| {
-    //         unsafe {
-    //             let curr_thread = nn::os::GetCurrentThread();
-    //             nn::os::ChangeThreadPriority(curr_thread, 16);
-    //         }
-    //         check_for_update();
-    //     })
-    //     .unwrap();
-
-    // Commented out until we get an actual news server
-    // #[cfg(feature = "online")]
-    // get_news_data();
+    #[cfg(feature = "online")]
+    let _updater = std::thread::Builder::new()
+        .stack_size(0x10000)
+        .spawn(|| {
+            unsafe {
+                let curr_thread = nn::os::GetCurrentThread();
+                nn::os::ChangeThreadPriority(curr_thread, 16);
+            }
+            check_for_update();
+        })
+        .unwrap();
 
     let arc = resource::arc();
     fuse::arc::install_arc_fs();
     api::event::send_event(Event::ArcFilesystemMounted);
+
     replacement::lookup::initialize(Some(arc));
 
-    let mut filesystem = unsafe { GLOBAL_FILESYSTEM.write().unwrap() };
+    let pending = {
+        let mut filesystem = GLOBAL_FILESYSTEM.write().unwrap();
+        filesystem.take()
+    };
+    let ready = pending.finish(arc).unwrap();
 
-    *filesystem = filesystem.take().finish(arc).unwrap();
-
+    let mut filesystem = GLOBAL_FILESYSTEM.write().unwrap();
+    *filesystem = ready;
     filesystem.process_mods();
     filesystem.share_hashes();
     filesystem.patch_files();
 
     if config::debug_enabled() {
         let mut output = BufWriter::new(std::fs::File::create("sd:/ultimate/arcropolis/filesystem_dump.txt").unwrap());
-        filesystem.get().walk_patch(|node, entry_type| {
-            let depth = node.get_local().components().count() - 1;
+        for (local, entry) in filesystem.modfs().patch().iter_files() {
+            let depth = local.components().count().saturating_sub(1);
             for _ in 0..depth {
                 let _ = write!(output, "    ");
             }
-            if entry_type.is_dir() {
-                let _ = writeln!(output, "{}", node.get_local().display());
-            } else {
-                let _ = writeln!(output, "{}", node.full_path().display());
-            }
-        });
+            let _ = writeln!(output, "{}", entry.full_path(local).display());
+        }
     }
 
     drop(filesystem);
 
     fuse::mods::install_mod_fs();
     api::event::send_event(Event::ModFilesystemMounted);
-
-    // #[cfg(feature = "online")]
-    // _updater.join().unwrap();
 }
 
 #[skyline::hook(offset = offsets::title_screen_version())]
 fn change_version_string(arg: u64, string: *const c_char) {
     let original_str = unsafe { skyline::from_c_str(string) };
 
-    if original_str.contains("Ver.") {
+    if original_str.starts_with("Ver.") {
         let new_str = format!(
             "Smash {}\nARCropolis Ver. {}\0",
             original_str,
@@ -322,14 +404,23 @@ fn change_version_string(arg: u64, string: *const c_char) {
 // pub fn stop_all_bgm();
 
 #[skyline::hook(offset = offsets::eshop_button())]
-fn show_eshop() {
+fn show_eshop(lua: *mut u64) -> u64 {
     // stop_all_bgm();
     // let instance = (*(offsets::offset_to_addr(0x532d8d0) as *const u64));
     // play_bgm(instance as _, 0xd9ffff202a04c55b, false);
 
     #[cfg(feature = "ui")]
-    menus::show_main_menu();
+    {
+        // no menus to show, let the shop applet the button normally opens run
+        if !arcadia::installed() {
+            return call_original!(lua);
+        }
+
+        arcadia::request(arcadia::Request::Hub);
+        arcadia::open_from_menu();
+    }
     // play_menu_bgm();
+    0
 }
 
 #[skyline::hook(offset = offsets::msbt_text(), inline)]
@@ -369,26 +460,18 @@ pub fn is_online() -> bool {
 // Thanks to blujay for these two function hooks
 #[skyline::hook(offset = offsets::change_color_r(), inline)]
 unsafe fn change_fighter_color_r(ctx: &mut skyline::hooks::InlineCtx) {
-    if is_online() {
-        unsafe {
-            if ctx.registers[8].w() >= 8 {
-                ctx.registers[8].set_w(0); // Actual color
-                ctx.registers[3].set_w(0); // UI
-            }
-        }
+    if is_online() && ctx.registers[8].w() >= 8 {
+        ctx.registers[8].set_w(0); // Actual color
+        ctx.registers[3].set_w(0); // UI
     }
 }
 
 #[skyline::hook(offset = offsets::change_color_l(), inline)]
 unsafe fn change_fighter_color_l(ctx: &mut skyline::hooks::InlineCtx) {
-    if is_online() {
-        unsafe {
-            if ctx.registers[8].w() >= 8 {
-                // Assuming that if they can change a character's color then that means a character has at least a set of 8 colors
-                ctx.registers[8].set_w(7); // Actual color
-                ctx.registers[3].set_w(7); // UI
-            }
-        }
+    if is_online() && ctx.registers[8].w() >= 8 {
+        // Assuming that if they can change a character's color then that means a character has at least a set of 8 colors
+        ctx.registers[8].set_w(7); // Actual color
+        ctx.registers[3].set_w(7); // UI
     }
 }
 
@@ -473,7 +556,7 @@ pub fn main() {
     }
 
     // Acquire the filesystem and promise it to the initial_loading hook
-    let mut filesystem = unsafe { GLOBAL_FILESYSTEM.write().unwrap() };
+    let mut filesystem = GLOBAL_FILESYSTEM.write().unwrap();
 
     let discovery = std::thread::Builder::new()
         .stack_size(0x10000)
@@ -512,6 +595,31 @@ pub fn main() {
     replacement::install();
     fixes::install();
     lua::install();
+
+    #[cfg(feature = "ui")]
+    {
+        let resource_root = utils::paths::resources();
+        let missing = arcadia::missing_resources(&resource_root);
+
+        if missing.is_empty() {
+            arcadia::install();
+        } else {
+            for file in &missing {
+                error!("Missing ARCropolis resource file: {}/{}", resource_root, file);
+            }
+
+            let list = missing
+                .iter()
+                .map(|file| format!("{}/{}", resource_root, file))
+                .collect::<Vec<_>>()
+                .join("<br>");
+
+            dialog_error(format!(
+                "ARCropolis is missing files it needs for its in-game menus in {}:<br>{}<br>The in-game menus are disabled for this boot. Reinstalling ARCropolis puts these files back.",
+                resource_root, list
+            ));
+        }
+    }
 
     // Wait on hashes/lut to finish
     let _ = resources.join();

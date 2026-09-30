@@ -14,7 +14,7 @@ use smash_arc::{
 
 use crate::{
     get_smash_hash, hashes,
-    resource::{self, CppVector, FilesystemInfo, LoadedData, LoadedDirectory, LoadedFilepath},
+    resource::{self, CppVector, LoadedData, LoadedDirectory, LoadedFilepath},
     PathExtension,
 };
 
@@ -32,7 +32,6 @@ pub struct InterDir {
 
 pub struct AdditionContext {
     pub arc: &'static mut LoadedArc,
-    pub filesystem_info: &'static FilesystemInfo,
 
     pub added_files: HashMap<Hash40, FilePathIdx>,
 
@@ -96,6 +95,17 @@ impl DerefMut for SearchContext {
 }
 
 impl AdditionContext {
+    pub fn reserve_additions(&mut self, additional: usize) {
+        self.filepaths.reserve(additional);
+        self.file_info_indices.reserve(additional);
+        self.file_infos.reserve(additional);
+        self.info_to_datas.reserve(additional);
+        self.file_datas.reserve(additional);
+        self.loaded_filepaths.reserve(additional);
+        self.loaded_datas.reserve(additional);
+        self.added_files.reserve(additional);
+    }
+
     pub fn get_shared_info_index(&self, current_index: FileInfoIdx) -> FileInfoIdx {
         let shared_idx = self.file_info_indices[usize::from(self.file_infos[usize::from(current_index)].file_info_indice_index)].file_info_index;
         if shared_idx == current_index {
@@ -154,13 +164,102 @@ impl SearchContext {
             },
         }
     }
+
+    pub fn reserve_additions(&mut self, additional: usize) {
+        self.folder_paths.reserve(additional);
+        self.path_list_indices.reserve(additional);
+        self.paths.reserve(additional);
+        self.new_folder_paths.reserve(additional);
+        self.new_paths.reserve(additional);
+    }
+}
+
+fn file_hash_entry(file_path: &FilePath, idx: usize) -> HashToIndex {
+    let mut index = HashToIndex::default();
+    index.set_hash(file_path.path.hash());
+    index.set_length(file_path.path.length());
+    index.set_index(idx as u32);
+    index
+}
+
+fn merge_sorted(out: &mut Vec<HashToIndex>, old: &[HashToIndex], new: &[HashToIndex]) {
+    let start = out.len();
+    let (mut i, mut j) = (0, 0);
+    while i < old.len() && j < new.len() {
+        if new[j].hash40().as_u64() < old[i].hash40().as_u64() {
+            out.push(new[j]);
+            j += 1;
+        } else {
+            out.push(old[i]);
+            i += 1;
+        }
+    }
+    out.extend_from_slice(&old[i..]);
+    out.extend_from_slice(&new[j..]);
+    if !out[start..].is_sorted_by_key(|entry| entry.hash40().as_u64()) {
+        out[start..].sort_by_key(|entry| entry.hash40().as_u64());
+    }
+}
+
+fn rebuild_all_file_hashes(arc: &LoadedArc, bucket_count: usize) -> (Vec<HashToIndex>, Vec<(usize, usize)>) {
+    let file_paths = arc.get_file_paths();
+    let avg_per_bucket = file_paths.len() / bucket_count + 1;
+    let mut buckets: Vec<Vec<HashToIndex>> = (0..bucket_count).map(|_| Vec::with_capacity(avg_per_bucket)).collect();
+
+    for (idx, file_path) in file_paths.iter().enumerate() {
+        let bucket_idx = (file_path.path.hash40().as_u64() as usize) % bucket_count;
+        buckets[bucket_idx].push(file_hash_entry(file_path, idx));
+    }
+
+    let mut new_hash_to_index = Vec::with_capacity(file_paths.len());
+    let mut start_count = Vec::with_capacity(bucket_count);
+    for bucket in buckets.iter_mut() {
+        bucket.sort_by_key(|entry| entry.hash40().as_u64());
+        start_count.push((new_hash_to_index.len(), bucket.len()));
+        new_hash_to_index.extend_from_slice(bucket);
+    }
+    (new_hash_to_index, start_count)
+}
+
+fn merge_new_file_hashes(arc: &LoadedArc, bucket_count: usize) -> Option<(Vec<HashToIndex>, Vec<(usize, usize)>)> {
+    let file_paths = arc.get_file_paths();
+    let old_buckets = arc.get_file_info_buckets();
+    if old_buckets.len() != bucket_count {
+        return None;
+    }
+
+    let mut old_total = 0usize;
+    for bucket in old_buckets {
+        if bucket.start as usize != old_total {
+            return None;
+        }
+        old_total += bucket.count as usize;
+    }
+    if old_total > file_paths.len() {
+        return None;
+    }
+    let old_index = unsafe { std::slice::from_raw_parts(arc.file_hash_to_path_index, old_total) };
+
+    let mut additions: Vec<Vec<HashToIndex>> = vec![Vec::new(); bucket_count];
+    for (idx, file_path) in file_paths.iter().enumerate().skip(old_total) {
+        let bucket_idx = (file_path.path.hash40().as_u64() as usize) % bucket_count;
+        additions[bucket_idx].push(file_hash_entry(file_path, idx));
+    }
+
+    let mut merged = Vec::with_capacity(file_paths.len());
+    let mut start_count = Vec::with_capacity(bucket_count);
+    for (bucket, adds) in old_buckets.iter().zip(additions.iter_mut()) {
+        let start = merged.len();
+        adds.sort_by_key(|entry| entry.hash40().as_u64());
+        let old_range = bucket.start as usize..(bucket.start + bucket.count) as usize;
+        merge_sorted(&mut merged, &old_index[old_range], adds);
+        start_count.push((start, merged.len() - start));
+    }
+    Some((merged, start_count))
 }
 
 pub trait LoadedArcEx {
-    fn get_file_hash_to_path_index_mut(&mut self) -> &mut [HashToIndex];
-    fn get_bucket_for_hash_mut(&mut self, hash: Hash40) -> &mut [HashToIndex];
     fn patch_filedata(&mut self, hash: Hash40, size: u32, region: Region) -> Result<u32, LookupError>;
-    fn change_hash_lookup(&mut self, hash: Hash40, index: FilePathIdx) -> Result<(), LookupError>;
     fn get_shared_file(&self, hash: Hash40) -> Result<FilePathIdx, LookupError>;
     fn resort_file_hashes(&mut self);
     fn make_addition_context() -> AdditionContext;
@@ -169,29 +268,10 @@ pub trait LoadedArcEx {
 }
 
 impl LoadedArcEx for LoadedArc {
-    fn get_file_hash_to_path_index_mut(&mut self) -> &mut [HashToIndex] {
-        unsafe {
-            let fs = *self.fs_header;
-            let table_size = fs.file_info_path_count;
-            std::slice::from_raw_parts_mut(self.file_hash_to_path_index as *mut HashToIndex, table_size as _)
-        }
-    }
-
-    fn get_bucket_for_hash_mut(&mut self, hash: Hash40) -> &mut [HashToIndex] {
-        let range = {
-            let file_info_buckets = self.get_file_info_buckets();
-            let bucket_index = (hash.as_u64() % (file_info_buckets.len() as u64)) as usize;
-            let bucket = &file_info_buckets[bucket_index];
-            (bucket.start as usize)..((bucket.start + bucket.count) as usize)
-        };
-
-        &mut self.get_file_hash_to_path_index_mut()[range]
-    }
-
     fn patch_filedata(&mut self, hash: Hash40, size: u32, region: Region) -> Result<u32, LookupError> {
         let file_info = *self.get_file_info_from_hash(hash)?;
         let region = if file_info.flags.is_regional() {
-            info!(
+            debug!(
                 "Patching file '{}' ({:#x}) and it is regional. Patching region {:?}",
                 hashes::find(hash),
                 hash.0,
@@ -206,17 +286,6 @@ impl LoadedArcEx for LoadedArc {
         let old_size = file_data.decomp_size;
         file_data.decomp_size = size;
         Ok(old_size)
-    }
-
-    fn change_hash_lookup(&mut self, hash: Hash40, index: FilePathIdx) -> Result<(), LookupError> {
-        let bucket = self.get_bucket_for_hash_mut(hash);
-
-        let index_in_bucket = bucket
-            .binary_search_by_key(&hash, |group| group.hash40())
-            .map_err(|_| LookupError::Missing)?;
-
-        bucket[index_in_bucket].set_index(index.0);
-        Ok(())
     }
 
     fn get_shared_file(&self, hash: Hash40) -> Result<FilePathIdx, LookupError> {
@@ -259,7 +328,6 @@ impl LoadedArcEx for LoadedArc {
 
         AdditionContext {
             arc,
-            filesystem_info,
 
             added_files: HashMap::new(),
             inter_dirs: HashMap::new(),
@@ -405,6 +473,8 @@ impl LoadedArcEx for LoadedArc {
         let (folder_children_hashes, folder_children_hashes_len) = (folder_children_hashes.as_mut_ptr(), folder_children_hashes.len());
         // --------------------- END DIRECTORY ADDITION VARIABLES ---------------------
 
+        // arc:/ keeps reading the game's original tables through fuse/arc.rs, which copied these header counts and
+        // the hash buckets before patching. Never free the original arrays or write into them
         let header = unsafe { &mut *(self.fs_header as *mut FileSystemHeader) };
 
         self.file_paths = filepaths;
@@ -458,30 +528,10 @@ impl LoadedArcEx for LoadedArc {
         static NEEDS_FREE: AtomicBool = AtomicBool::new(false);
         let bucket_count = unsafe { (*self.file_info_buckets).count as usize };
 
-        let avg_per_bucket = self.get_file_paths().len() / bucket_count + 1;
-        let mut buckets: Vec<Vec<HashToIndex>> = (0..bucket_count).map(|_| Vec::with_capacity(avg_per_bucket)).collect();
-
-        for (idx, file_path) in self.get_file_paths().iter().enumerate() {
-            let bucket_idx = (file_path.path.hash40().as_u64() as usize) % bucket_count;
-            let mut index = HashToIndex::default();
-            index.set_hash(file_path.path.hash());
-            index.set_length(file_path.path.length());
-            index.set_index(idx as u32);
-            buckets[bucket_idx].push(index);
-        }
-
-        let mut start_count = Vec::with_capacity(buckets.len());
-        let mut start = 0usize;
-        for bucket in buckets.iter_mut() {
-            start_count.push((start, bucket.len()));
-            start += bucket.len();
-            bucket.as_mut_slice().sort_by(|a, b| a.hash40().as_u64().cmp(&b.hash40().as_u64()));
-        }
-
-        let mut new_hash_to_index = Vec::with_capacity(self.get_file_paths().len());
-        for bucket in buckets.iter() {
-            new_hash_to_index.extend_from_slice(bucket.as_slice());
-        }
+        let (new_hash_to_index, start_count) = match merge_new_file_hashes(self, bucket_count) {
+            Some(built) => built,
+            None => rebuild_all_file_hashes(self, bucket_count),
+        };
 
         let tmp = self.file_hash_to_path_index as _;
 
@@ -489,6 +539,7 @@ impl LoadedArcEx for LoadedArc {
 
         for (idx, _) in start_count.iter().enumerate().take(bucket_count) {
             unsafe {
+                // written in place, fuse/arc.rs took its own copy of the buckets before patching
                 *(self.file_info_buckets as *mut FileInfoBucket).add(1 + idx) = FileInfoBucket {
                     start: start_count[idx].0 as u32,
                     count: start_count[idx].1 as u32,
@@ -501,6 +552,7 @@ impl LoadedArcEx for LoadedArc {
                 skyline::libc::free(tmp);
             }
         }
+        
         assert!(self
             .get_file_path_index_from_hash(Hash40::from("fighter/common/param/fighter_param.prc"))
             .is_ok());
@@ -511,128 +563,71 @@ impl LoadedArcEx for LoadedArc {
     }
 }
 
+fn search_path_entry(path: &PathListEntry, link: Option<&usize>) -> HashToIndex {
+    let mut index = HashToIndex::default();
+    index.set_hash(path.path.hash());
+    index.set_length(path.path.length());
+    match link {
+        Some(pos) => index.set_index(*pos as u32),
+        None => index.set_index(NO_CHILD),
+    }
+    index
+}
+
+fn rebuild_all_paths(search: &LoadedSearchSection) -> Vec<HashToIndex> {
+    let paths = search.get_path_list();
+    let mut index_link = HashMap::new();
+    for (idx, index) in search.get_path_list_indices().iter().enumerate() {
+        if *index != INVALID_INDEX && *index != NO_CHILD {
+            index_link.insert(paths[*index as usize].path.hash40(), idx);
+        }
+    }
+    let mut indices = Vec::with_capacity(paths.len());
+    for path in paths.iter() {
+        indices.push(search_path_entry(path, index_link.get(&path.path.hash40())));
+    }
+    indices.sort_by_key(|a| a.hash40());
+    indices
+}
+
+fn merge_new_paths(search: &LoadedSearchSection, old_indices_count: usize, old_path_count: usize) -> Option<Vec<HashToIndex>> {
+    let paths = search.get_path_list();
+    let indices = search.get_path_list_indices();
+    if old_indices_count != old_path_count || old_path_count > paths.len() || old_indices_count > indices.len() {
+        return None;
+    }
+    let old_index = unsafe { std::slice::from_raw_parts(search.path_index, old_path_count) };
+
+    let mut index_link = HashMap::new();
+    for (pos, index) in indices.iter().enumerate().skip(old_indices_count) {
+        if *index != INVALID_INDEX && *index != NO_CHILD {
+            index_link.insert(paths[*index as usize].path.hash40(), pos);
+        }
+    }
+    let mut adds: Vec<HashToIndex> = paths[old_path_count..]
+        .iter()
+        .map(|path| search_path_entry(path, index_link.get(&path.path.hash40())))
+        .collect();
+    adds.sort_by_key(|entry| entry.hash40().as_u64());
+
+    let mut merged = Vec::with_capacity(paths.len());
+    merge_sorted(&mut merged, old_index, &adds);
+    for entry in merged.iter_mut() {
+        if entry.hash40().as_u64() == 0 {
+            entry.set_index(NO_CHILD);
+        }
+    }
+    Some(merged)
+}
+
 pub trait SearchEx: SearchLookup {
-    fn get_folder_path_to_index_mut(&mut self) -> &mut [HashToIndex];
-    fn get_folder_path_list_mut(&mut self) -> &mut [FolderPathListEntry];
-    fn get_path_to_index_mut(&mut self) -> &mut [HashToIndex];
-    fn get_path_list_indices_mut(&mut self) -> &mut [u32];
-    fn get_path_list_mut(&mut self) -> &mut [PathListEntry];
-
-    fn get_folder_path_index_from_hash_mut(&mut self, hash: impl Into<Hash40>) -> Result<&mut HashToIndex, LookupError> {
-        let folder_path_to_index = self.get_folder_path_to_index_mut();
-        match folder_path_to_index.binary_search_by_key(&hash.into(), |h| h.hash40()) {
-            Ok(idx) => Ok(&mut folder_path_to_index[idx]),
-            Err(_) => Err(LookupError::Missing),
-        }
-    }
-
-    fn get_folder_path_entry_from_hash_mut(&mut self, hash: impl Into<Hash40>) -> Result<&mut FolderPathListEntry, LookupError> {
-        let index = *self.get_folder_path_index_from_hash(hash)?;
-        if index.index() != NO_CHILD {
-            Ok(&mut self.get_folder_path_list_mut()[index.index() as usize])
-        } else {
-            Err(LookupError::Missing)
-        }
-    }
-
-    fn get_path_index_from_hash_mut(&mut self, hash: impl Into<Hash40>) -> Result<&mut HashToIndex, LookupError> {
-        let path_to_index = self.get_path_to_index_mut();
-        match path_to_index.binary_search_by_key(&hash.into(), |h| h.hash40()) {
-            Ok(idx) => Ok(&mut path_to_index[idx]),
-            Err(_) => Err(LookupError::Missing),
-        }
-    }
-
-    fn get_path_list_index_from_hash_mut(&mut self, hash: impl Into<Hash40>) -> Result<&mut u32, LookupError> {
-        let index = *self.get_path_index_from_hash(hash)?;
-        if index.index() != NO_CHILD {
-            Ok(&mut self.get_path_list_indices_mut()[index.index() as usize])
-        } else {
-            Err(LookupError::Missing)
-        }
-    }
-
-    fn get_path_list_entry_from_hash_mut(&mut self, hash: impl Into<Hash40>) -> Result<&mut PathListEntry, LookupError> {
-        let index = self.get_path_list_index_from_hash(hash)?;
-        if index != NO_CHILD {
-            Ok(&mut self.get_path_list_mut()[index as usize])
-        } else {
-            Err(LookupError::Missing)
-        }
-    }
-
-    fn get_first_child_in_folder_mut(&mut self, hash: impl Into<Hash40>) -> Result<&mut PathListEntry, LookupError> {
-        let folder_path = self.get_folder_path_entry_from_hash(hash)?;
-        let index_idx = folder_path.get_first_child_index();
-
-        if index_idx == NO_CHILD as usize {
-            return Err(LookupError::Missing);
-        }
-
-        let path_entry_index = self.get_path_list_indices()[index_idx];
-        if path_entry_index != NO_CHILD {
-            Ok(&mut self.get_path_list_mut()[path_entry_index as usize])
-        } else {
-            Err(LookupError::Missing)
-        }
-    }
-
-    fn get_next_child_in_folder_mut(&mut self, current_child: &PathListEntry) -> Result<&mut PathListEntry, LookupError> {
-        let index_idx = current_child.path.index() as usize;
-        if index_idx == NO_CHILD as usize {
-            return Err(LookupError::Missing);
-        }
-
-        let path_entry_index = self.get_path_list_indices()[index_idx];
-        if path_entry_index != NO_CHILD {
-            Ok(&mut self.get_path_list_mut()[path_entry_index as usize])
-        } else {
-            Err(LookupError::Missing)
-        }
-    }
-
     fn resort_folder_paths(&mut self);
-    fn resort_paths(&mut self);
+    fn resort_paths(&mut self, old_indices_count: usize, old_path_count: usize);
     fn make_context() -> SearchContext;
     fn take_context(&mut self, ctx: SearchContext);
 }
 
 impl SearchEx for LoadedSearchSection {
-    fn get_folder_path_to_index_mut(&mut self) -> &mut [HashToIndex] {
-        unsafe {
-            let table_size = (*self.body).folder_path_count;
-            std::slice::from_raw_parts_mut(self.folder_path_index as _, table_size as usize)
-        }
-    }
-
-    fn get_folder_path_list_mut(&mut self) -> &mut [FolderPathListEntry] {
-        unsafe {
-            let table_size = (*self.body).folder_path_count;
-            std::slice::from_raw_parts_mut(self.folder_path_list as _, table_size as usize)
-        }
-    }
-
-    fn get_path_to_index_mut(&mut self) -> &mut [HashToIndex] {
-        unsafe {
-            let table_size = (*self.body).path_indices_count;
-            std::slice::from_raw_parts_mut(self.path_index as _, table_size as usize)
-        }
-    }
-
-    fn get_path_list_indices_mut(&mut self) -> &mut [u32] {
-        unsafe {
-            let table_size = (*self.body).path_indices_count;
-            std::slice::from_raw_parts_mut(self.path_list_indices as _, table_size as usize)
-        }
-    }
-
-    fn get_path_list_mut(&mut self) -> &mut [PathListEntry] {
-        unsafe {
-            let table_size = (*self.body).path_count;
-            std::slice::from_raw_parts_mut(self.path_list as _, table_size as usize)
-        }
-    }
-
     fn resort_folder_paths(&mut self) {
         static NEEDS_FREE: AtomicBool = AtomicBool::new(false);
         let paths = self.get_folder_path_list();
@@ -657,28 +652,12 @@ impl SearchEx for LoadedSearchSection {
         }
     }
 
-    fn resort_paths(&mut self) {
+    fn resort_paths(&mut self, old_indices_count: usize, old_path_count: usize) {
         static NEEDS_FREE: AtomicBool = AtomicBool::new(false);
-        let paths = self.get_path_list();
-        let mut index_link = HashMap::new();
-        for (idx, index) in self.get_path_list_indices().iter().enumerate() {
-            if *index != INVALID_INDEX && *index != NO_CHILD {
-                index_link.insert(paths[*index as usize].path.hash40(), idx);
-            }
-        }
-        let mut indices = Vec::with_capacity(paths.len());
-        for path in paths.iter() {
-            let mut index = HashToIndex::default();
-            index.set_hash(path.path.hash());
-            index.set_length(path.path.length());
-            if let Some(idx) = index_link.get(&path.path.hash40()) {
-                index.set_index(*idx as u32);
-            } else {
-                index.set_index(NO_CHILD);
-            }
-            indices.push(index);
-        }
-        indices.sort_by_key(|a| a.hash40());
+        let indices = match merge_new_paths(self, old_indices_count, old_path_count) {
+            Some(built) => built,
+            None => rebuild_all_paths(self),
+        };
 
         let tmp = self.path_index;
 
@@ -721,6 +700,8 @@ impl SearchEx for LoadedSearchSection {
         let (path_list_indices, path_list_indices_len) = (path_list_indices.as_ptr(), path_list_indices.len());
         let (paths, paths_len) = (paths.as_ptr(), paths.len());
 
+        let (old_indices_count, old_path_count) = unsafe { ((*self.body).path_indices_count as usize, (*self.body).path_count as usize) };
+
         unsafe {
             self.folder_path_list = folder_paths as _;
             (*(self.body as *mut SearchSectionBody)).folder_path_count = folder_paths_len as u32;
@@ -733,7 +714,7 @@ impl SearchEx for LoadedSearchSection {
         }
 
         self.resort_folder_paths();
-        self.resort_paths();
+        self.resort_paths(old_indices_count, old_path_count);
     }
 }
 

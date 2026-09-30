@@ -1,0 +1,31 @@
+{
+    "new-dir-infos": [
+        "ui/layout/menu/arcadia",
+        "ui/layout/menu/arcadia/arcadia",
+        "ui/layout/menu/arcadia/arcadia_top",
+        "ui/layout/menu/arcadia/arcadia_config",
+        "ui/layout/menu/arcadia/arcadia_loglevel",
+        "ui/layout/menu/arcadia/arcadia_workspace",
+        "ui/layout/menu/arcadia/arcadia_changelog"
+    ],
+    "new-dir-files": {
+        "ui/layout/menu/arcadia/arcadia": [
+            "ui/layout/menu/arcadia/arcadia/layout.arc"
+        ],
+        "ui/layout/menu/arcadia/arcadia_top": [
+            "ui/layout/menu/arcadia/arcadia_top/layout.arc"
+        ],
+        "ui/layout/menu/arcadia/arcadia_config": [
+            "ui/layout/menu/arcadia/arcadia_config/layout.arc"
+        ],
+        "ui/layout/menu/arcadia/arcadia_loglevel": [
+            "ui/layout/menu/arcadia/arcadia_loglevel/layout.arc"
+        ],
+        "ui/layout/menu/arcadia/arcadia_workspace": [
+            "ui/layout/menu/arcadia/arcadia_workspace/layout.arc"
+        ],
+        "ui/layout/menu/arcadia/arcadia_changelog": [
+            "ui/layout/menu/arcadia/arcadia_changelog/layout.arc"
+        ]
+    }
+}

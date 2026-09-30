@@ -57,6 +57,7 @@ fn generate_default_config<CS: ConfigStorage>(storage: &mut StorageHolder<CS>) -
     default_workspace.insert("Default", "presets");
 
     storage.set_field_json("workspace_list", &default_workspace)?;
+    storage.set_flag("arcadia_help_entry", true)?;
     storage.set_field("workspace", "Default")
 }
 
@@ -129,8 +130,9 @@ pub mod workspaces {
         #[error("a workspace with this name already exists")]
         AlreadyExists,
         #[error("failed to find workspace with name: {0}")]
-        MissingWorkspace(String), // #[error("failed to call from_str for the desired type")]
-                                  // FromStrErr,
+        MissingWorkspace(String),
+        #[error("the Default workspace cannot be deleted")]
+        CannotDeleteDefault,
     }
 
     pub fn get_list() -> Result<HashMap<String, String>, WorkspaceError> {
@@ -145,12 +147,11 @@ pub mod workspaces {
         let mut list = get_list()?;
 
         if let std::collections::hash_map::Entry::Vacant(e) = list.entry(name.clone()) {
-            e.insert(name);
-            GLOBAL_CONFIG
-                .lock()
-                .unwrap()
-                .set_field_json("workspace_list", &list)
-                .map_err(WorkspaceError::ConfigError)
+            e.insert(name.clone());
+            let mut storage = GLOBAL_CONFIG.lock().unwrap();
+            storage.set_field_json(&name, &HashSet::<Hash40>::new())?;
+            storage.set_field_json("workspace_list", &list)?;
+            Ok(())
         } else {
             Err(WorkspaceError::AlreadyExists)
         }
@@ -178,7 +179,12 @@ pub mod workspaces {
 
     pub fn get_active_workspace() -> Result<String, WorkspaceError> {
         let workspace_list = get_list()?;
-        let workspace_name: String = GLOBAL_CONFIG.lock().unwrap().get_field("workspace")?;
+        let mut storage = GLOBAL_CONFIG.lock().unwrap();
+        let mut workspace_name: String = storage.get_field("workspace")?;
+        if !workspace_list.contains_key(&workspace_name) {
+            workspace_name = "Default".to_string();
+            storage.set_field("workspace", &workspace_name)?;
+        }
         workspace_list
             .get(&workspace_name)
             .map(|x| x.to_owned())
@@ -202,11 +208,32 @@ pub mod workspaces {
         // Reinsert the preset name with the new workspace name
         workspace_list.insert(to.to_string(), preset_name);
         // Overwrite the list with the changes
-        GLOBAL_CONFIG
-            .lock()
-            .unwrap()
-            .set_field_json("workspace_list", &workspace_list)
-            .map_err(WorkspaceError::ConfigError)
+        let mut storage = GLOBAL_CONFIG.lock().unwrap();
+        storage.set_field_json("workspace_list", &workspace_list)?;
+
+        if storage.get_field::<String>("workspace")? == from {
+            storage.set_field("workspace", to)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn delete_workspace(name: &str) -> Result<(), WorkspaceError> {
+        if name == "Default" {
+            return Err(WorkspaceError::CannotDeleteDefault);
+        }
+
+        let mut workspace_list = get_list()?;
+        workspace_list.remove(name).ok_or_else(|| WorkspaceError::MissingWorkspace(name.to_string()))?;
+
+        let mut storage = GLOBAL_CONFIG.lock().unwrap();
+        storage.set_field_json("workspace_list", &workspace_list)?;
+
+        if storage.get_field::<String>("workspace")? == name {
+            storage.set_field("workspace", "Default")?;
+        }
+
+        Ok(())
     }
 }
 
@@ -234,20 +261,20 @@ pub mod presets {
 
     pub fn get_active_preset() -> Result<HashSet<Hash40>, PresetError> {
         let preset_name = workspaces::get_active_workspace()?;
-        GLOBAL_CONFIG
-            .lock()
-            .unwrap()
-            .get_field_json(preset_name)
-            .map_err(PresetError::ConfigError)
+        read_preset(&preset_name)
     }
 
     pub fn get_preset(workspace_name: &str) -> Result<HashSet<Hash40>, PresetError> {
         let preset_name = workspaces::get_workspace_by_name(workspace_name)?;
-        GLOBAL_CONFIG
-            .lock()
-            .unwrap()
-            .get_field_json(preset_name)
-            .map_err(PresetError::ConfigError)
+        read_preset(&preset_name)
+    }
+
+    fn read_preset(preset_name: &str) -> Result<HashSet<Hash40>, PresetError> {
+        match GLOBAL_CONFIG.lock().unwrap().get_field_json(preset_name) {
+            Ok(preset) => Ok(preset),
+            Err(ConfigError::FieldMissing) => Ok(HashSet::new()),
+            Err(err) => Err(PresetError::ConfigError(err)),
+        }
     }
 
     pub fn replace_preset(workspace_name: &str, preset: &HashSet<Hash40>) -> Result<(), PresetError> {

@@ -1,37 +1,8 @@
-use std::{fmt::Write, sync::LazyLock};
+use std::sync::LazyLock;
 
-use lazysimd;
 use serde::{Deserialize, Serialize};
-use skyline::hooks::{getRegionAddress, Region};
 
-static OFFSETS: LazyLock<Offsets> = LazyLock::new(|| {
-    let path = crate::utils::paths::cache().join("offsets.toml");
-    let offsets = match std::fs::read_to_string(&path) {
-        Ok(string) => match toml::de::from_str(string.as_str()) {
-            Ok(offsets) => Some(offsets),
-            Err(err) => {
-                error!("Unable to parse 'offsets.toml'. Reason: {:?}", err);
-                Offsets::new()
-            },
-        },
-        Err(err) => {
-            error!("Unable to read 'offsets.toml'. Reason: {:?}", err);
-            Offsets::new()
-        },
-    }
-    .expect("unable to find subsequence");
-
-    match toml::ser::to_string_pretty(&offsets) {
-        Ok(string) => {
-            if std::fs::write(path, string.as_bytes()).is_err() {
-                error!("Unable to write 'offsets.toml'.")
-            }
-        },
-        Err(_) => error!("Failed to serialize offsets."),
-    }
-
-    offsets
-});
+static OFFSETS: LazyLock<Offsets> = LazyLock::new(|| patterns::load_or_build("offsets.toml", Offsets::new));
 
 // Search Code: Tuple(ByteArray, Offset)
 
@@ -382,15 +353,6 @@ static LUA_UI2D_BINDINGS_CODE: (&[u8], isize) = (
     -0x64c,
 );
 
-static LUA_NIL_ADRP_CODE: (&[u8], isize) = (
-    &[
-        0x21, 0x78, 0x27, 0x91, 0x09, 0x29, 0x41, 0xa9, 0xe9, 0x2b, 0x01, 0xa9, 0xe0, 0x03, 0x13, 0xaa, 0x09, 0x29, 0x40, 0xa9, 0xe9, 0x2b, 0x00,
-        0xa9, 0x09, 0x29, 0x43, 0xa9, 0xe9, 0x2b, 0x03, 0xa9, 0x09, 0x29, 0x42, 0xa9, 0xe9, 0x2b, 0x02, 0xa9, 0x09, 0x29, 0x45, 0xa9, 0xe9, 0x2b,
-        0x05, 0xa9, 0x09, 0x29, 0x44, 0xa9, 0xe9, 0x2b, 0x04, 0xa9, 0x09, 0x29, 0x47, 0xa9,
-    ],
-    -0x260,
-);
-
 static LUA_INGAME_BINDINGS_CODE: (&[u8], isize) = (
     &[
         0x08, 0xd9, 0x42, 0xf9, 0x08, 0x01, 0x40, 0xf9, 0x09, 0x01, 0x40, 0xf9, 0x2b, 0xa1, 0x41, 0x29, 0x08, 0x05, 0x00, 0x11, 0x28, 0x11, 0x00,
@@ -431,45 +393,24 @@ static LUA_PUSHSTRING_CODE: (&[u8], isize) = (
 
 #[allow(clippy::inconsistent_digit_grouping)]
 fn offset_from_adrp(adrp_offset: usize) -> usize {
-    unsafe {
-        let adrp = *(offset_to_addr(adrp_offset) as *const u32);
-        let immhi = (adrp & 0b0000_0000_1111_1111_1111_1111_1110_0000) >> 3;
-        let immlo = (adrp & 0b0110_0000_0000_0000_0000_0000_0000_0000) >> 29;
-        let imm = ((immhi | immlo) << 12) as i32 as usize;
-        let base = adrp_offset & 0xFFFF_FFFF_FFFF_F000;
-        base + imm
-    }
+    patterns::adrp_page(get_text(), adrp_offset)
 }
 
-#[allow(clippy::inconsistent_digit_grouping)]
 fn offset_from_ldr(ldr_offset: usize) -> usize {
-    unsafe {
-        let ldr = *(offset_to_addr(ldr_offset) as *const u32);
-        let size = (ldr & 0b1100_0000_0000_0000_0000_0000_0000_0000) >> 30;
-        let imm = (ldr & 0b0000_0000_0011_1111_1111_1100_0000_0000) >> 10;
-        (imm as usize) << size
-    }
+    patterns::ldr_imm(get_text(), ldr_offset)
 }
 
 // This also works for 'add' instructions
-#[allow(clippy::inconsistent_digit_grouping)]
 fn offset_from_strb_unsigned_immediate(strb_offset: usize) -> usize {
-    unsafe {
-        let strb = *(offset_to_addr(strb_offset) as *const u32);
-        ((strb & 0b00000_000_00_111111111111_00000_00000) >> 10) as usize
-    }
+    patterns::add_imm(get_text(), strb_offset)
 }
 
 pub fn offset_to_addr(offset: usize) -> *const () {
-    unsafe { (getRegionAddress(Region::Text) as *const u8).add(offset) as _ }
+    patterns::offset_to_addr(offset)
 }
 
 fn get_text() -> &'static [u8] {
-    unsafe {
-        let ptr = getRegionAddress(Region::Text) as *const u8;
-        let size = (getRegionAddress(Region::Rodata) as usize) - (ptr as usize);
-        std::slice::from_raw_parts(ptr, size)
-    }
+    patterns::text()
 }
 
 macro_rules! generate_members {
@@ -530,7 +471,6 @@ generate_members! {
         lua_getfield: usize,
         lua_setmetatable: usize,
         lua_ui2d_bindings: usize,
-        lua_nil: usize,
         system_locale_id: usize,
         lua_ingame_bindings: usize,
         declare_namespace: usize,
@@ -609,12 +549,6 @@ impl Offsets {
             let strb_offset = offset_from_strb_unsigned_immediate(adrp + 4);
             adrp_offset + strb_offset
         };
-        let lua_nil = {
-            let adrp = get_offset_neon(text, LUA_NIL_ADRP_CODE);
-            let adrp_offset = offset_from_adrp(adrp);
-            let strb_offset = offset_from_strb_unsigned_immediate(adrp + 4);
-            adrp_offset + strb_offset
-        };
         let system_locale_id = {
             let adrp = get_ui_chara_path_from_hash + (4 * 23); // Skip 24 instructions to get to the REGION_NUM ADRP
             let adrp_offset = offset_from_adrp(adrp);
@@ -665,7 +599,6 @@ impl Offsets {
             lua_getfield,
             lua_setmetatable,
             lua_ui2d_bindings,
-            lua_nil,
             system_locale_id,
             lua_ingame_bindings,
             declare_namespace,
@@ -675,15 +608,6 @@ impl Offsets {
     }
 }
 
-// Don't go and steal that stuff, it's definitely not finished
 pub fn get_offset_neon(data: &[u8], pattern: (&'static [u8], isize)) -> usize {
-    let mut s = String::new();
-
-    for byte in pattern.0 {
-        write!(&mut s, "{:X} ", byte).expect("lmao");
-    }
-
-    write!(&mut s, "??").expect("lmao");
-
-    ((lazysimd::find_pattern_neon(data.as_ptr(), data.len(), s).expect("lmao") as isize) + pattern.1) as usize
+    patterns::find_bytes(data, pattern).expect("a byte pattern was not found in this game version")
 }

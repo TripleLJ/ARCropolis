@@ -1,14 +1,14 @@
 [package]
 name = "arcropolis"
-version = "4.0.9"
-authors = ["Raytwo <raytwo@arcropolis.com>, blujay <the.blu.dev@gmail.com>, jam1garner <jam@jam1.re>, CoolSonicKirby <alihussain2001@gmail.com>"]
+version = "4.1.1"
+authors = ["Raytwo <raytwo@arcropolis.com>, blujay <the.blu.dev@gmail.com>, jam1garner <jam@jam1.re>, CoolSonicKirby <alihussain2001@gmail.com>, WuBoytH <alexwuief@gmail.com>"]
 edition = "2018"
 
 [package.metadata.skyline]
 titleid = "01006A800016E000"
-# package-resources = [
-#     { local = "changelog.toml", package = "ultimate/arcropolis/changelog.toml" }
-# ]
+package-resources = [
+    { local = "resources/arcadia", package = "ultimate/arcropolis/resources" }
+]
 
 [lib]
 crate-type = ["cdylib"]
@@ -38,8 +38,7 @@ owo-colors = "3.5.0"
 strip-ansi-escapes = "0.1.1"
 bincode = "1.3.3"
 # To manage mods
-orbits = { git = "https://github.com/Raytwo/orbits" }
-smash-arc = { git = "https://github.com/jam1garner/smash-arc", features = ["smash-runtime", "rust-zstd", "serialize"] }
+smash-arc = { version = "0.6.0", default-features = false, features = ["dir-listing", "smash-runtime", "rust-zstd", "serialize"] }
 hash40 = "1.3"
 arcropolis-api = { git = "https://github.com/Raytwo/arcropolis_api" }
 arc-config = { git = "https://github.com/Raytwo/arc-config", features = ["runtime"] }
@@ -61,18 +60,18 @@ smash-bgm-property = "1.2.0"
 # For inputs
 ninput = { git = "https://github.com/blu-dev/ninput" }
 # For Offset Searching
-lazysimd = { git = "https://github.com/Raytwo/lazysimd" }
+patterns = { path = "crates/patterns" }
 config = { path = "crates/config" }
-menus = { path = "crates/menus", optional = true }
+arcadia = { path = "crates/arcadia", optional = true }
 
 [patch.crates-io]
 # Specifying latest commit because git only doesn't use latest changes
 native-tls = { git = "https://github.com/skyline-rs/rust-native-tls", rev = "f202fca"  }
 
 [features]
-default = ["ui"]
+default = ["ui", "online"]
 online = ["zip", "gh-updater", "minreq"]
-ui = ["dep:menus"]
+ui = ["dep:arcadia"]
 
 [profile.dev]
 panic = "abort"
@@ -80,7 +79,7 @@ panic = "abort"
 [profile.release]
 panic = "abort"
 lto = true
-opt-level = 1
+opt-level = 3
 incremental = true
 debug = 1
 

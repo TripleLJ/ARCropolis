@@ -1,10 +1,13 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::LazyLock,
+};
 
 use owo_colors::OwoColorize;
 use smash_arc::*;
 use walkdir::WalkDir;
 
-use crate::{hashes, resource, utils};
+use crate::{hashes, resource};
 
 #[no_mangle]
 pub extern "C" fn arcrop_load_file(hash: Hash40, out_buffer: *mut u8, buf_length: usize, out_size: &mut usize) -> bool {
@@ -18,7 +21,8 @@ pub extern "C" fn arcrop_load_file(hash: Hash40, out_buffer: *mut u8, buf_length
     let buffer = unsafe { std::slice::from_raw_parts_mut(out_buffer, buf_length) };
 
     // This function is intended to only be called by an arc api, which means that we have already write locked the thread and cannot read lock it
-    if let Some(size) = unsafe { crate::GLOBAL_FILESYSTEM.get_mut().unwrap().load_into(hash, buffer) } {
+    let filesystem = unsafe { &*crate::GLOBAL_FILESYSTEM.data_ptr() };
+    if let Some(size) = filesystem.load_into(hash, buffer) {
         *out_size = size;
         debug!("arcrop_load_file -> Successfully loaded file. Bytes read: {:#x}", size);
         true
@@ -64,46 +68,43 @@ pub extern "C" fn arcrop_is_file_loaded(hash: Hash40) -> bool {
     }
 }
 
+// Plugins ask this once per mod folder (stage_config alone was abserved to make 339 calls on a 25gb modpack)
+// Listing the mods dir or reading the preset files on every call added up to 5 minutes to the boot time and the answer can't change until the next boot anyway
+static ENABLED_MODS: LazyLock<HashSet<Hash40>> = LazyLock::new(enabled_mods);
+
 #[no_mangle]
 pub extern "C" fn arcrop_is_mod_enabled(hash: Hash40) -> bool {
     debug!("arcrop_is_mod_enabled -> Received hash {} ({:#x})", hashes::find(hash).green(), hash.0);
 
+    ENABLED_MODS.contains(&hash)
+}
+
+fn enabled_mods() -> HashSet<Hash40> {
     let storage = config::GLOBAL_CONFIG.lock().unwrap();
 
-    let preset: HashSet<Hash40> = if storage.get_flag("legacy_discovery") || utils::env::is_emulator() {
+    if storage.get_flag("legacy_discovery") {
         WalkDir::new(crate::utils::paths::mods())
             .max_depth(1)
             .into_iter()
             .filter_map(|entry| {
-                if let Ok(entry) = entry {
-                    // Make this less gross
-                    if !entry.file_type().is_dir() {
-                        return None;
-                    }
-
-                    let path = entry.path();
-
-                    if path
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .map(|name| !name.starts_with('.'))
-                        .unwrap_or(false)
-                    {
-                        Some(Hash40::from(path.to_str().unwrap()))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
+                let entry = entry.ok()?;
+                if !entry.file_type().is_dir() {
+                    return None;
                 }
+                let name = entry.file_name().to_str()?;
+                if name.starts_with('.') {
+                    return None;
+                }
+                Some(Hash40::from(entry.path().to_str()?))
             })
             .collect()
     } else {
         let workspace_name: String = storage.get_field("workspace").unwrap_or_else(|_| "Default".to_string());
         let workspace_list: HashMap<String, String> = storage.get_field_json("workspace_list").unwrap_or_default();
-        let preset_name = &workspace_list[&workspace_name];
+        let preset_name = match workspace_list.get(&workspace_name).or_else(|| workspace_list.get("Default")) {
+            Some(name) => name,
+            None => return HashSet::new(),
+        };
         storage.get_field_json(preset_name).unwrap_or_default()
-    };
-
-    preset.contains(&hash)
+    }
 }

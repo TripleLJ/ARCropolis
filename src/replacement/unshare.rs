@@ -20,7 +20,7 @@ fn reshare_dependent_files(
     unshare_lut: &UnshareLookup,
     share_lut: &ShareLookup,
 ) {
-    info!("Attempting to reshare files dependent on '{}' ({:#x})", hashes::find(hash), hash.0);
+    debug!("Attempting to reshare files dependent on '{}' ({:#x})", hashes::find(hash), hash.0);
     // First, I need to create a unique filepath which will not conflict with any other path
     // in the game (this is important for later when we resort the HashToIndex based off of the filepaths)
     // To do this, we simply set its length to a length impossible to find in the base data.arc
@@ -28,7 +28,7 @@ fn reshare_dependent_files(
     let shared_file_path_index = match ctx.get_file_path_index_from_hash(hash) {
         Ok(idx) => idx,
         Err(_) => {
-            error!(
+            debug!(
                 "Failed to find the path index when resharing dependent files on '{}' ({:#x}). This will probably cause infinite loads.",
                 hashes::find(hash),
                 hash.0
@@ -68,7 +68,7 @@ fn reshare_dependent_files(
 
     // Create a new FileInfoIndex with a directory offset that doesn't matter and a file info index that we are pointing to
     ctx.file_info_indices.push(FileInfoIndex {
-        dir_offset_index: NO_CHILD,
+        dir_offset_index: 0xFF_FFFF,
         file_info_index: new_info_idx,
     });
 
@@ -137,7 +137,7 @@ fn reshare_dependent_files(
                         .set_index(new_info_indice_idx.0);
                     continue;
                 }
-                error!(
+                debug!(
                     "Failed to find directory entry for file '{}' ({:#x}) while trying to reshare it to a new file, separate from '{}' ({:#x}). This file will cause infinite loads.",
                     hashes::find(dependent_hash),
                     dependent_hash.0,
@@ -152,7 +152,7 @@ fn reshare_dependent_files(
         let child_info_range = match ctx.get_dir_info_from_hash_ctx(dir_hash) {
             Ok(info) => info.file_info_range(),
             Err(_) => {
-                error!(
+                debug!(
                     "Failed to find the directory containing file '{}' ({:#x}) while trying to separate it from '{}' ({:#x}). This file will infinite load.",
                     hashes::find(dependent_hash),
                     dependent_hash.0,
@@ -170,7 +170,7 @@ fn reshare_dependent_files(
         let dependent_filepath_index = dependent_info.file_path_index;
         dependent_info.file_info_indice_index = new_info_indice_idx;
         dependent_info.flags.set_standalone_file(true);
-        info!(
+        debug!(
             "Reshared file '{}' ({:#x}), which depended on '{}' ({:#x})",
             hashes::find(dependent_hash),
             dependent_hash.0,
@@ -349,7 +349,7 @@ fn unshare_file(
     // to modify its `standalone_file` flag (this is one that ARCropolis adds)
     // This isn't technically necessary but since we are here anyways it does help. This information is also stored in one of the
     // cache files
-    if idx != NO_CHILD as usize {
+    if idx != 0xFF_FFFF {
         let mut dir_file_info = ctx.file_infos[dir_info.file_info_range()][idx];
 
         dir_file_info.file_info_indice_index = new_info_indice_idx;
@@ -363,7 +363,7 @@ fn unshare_file(
     ctx.file_infos.push(new_file_info);
 
     ctx.file_info_indices.push(FileInfoIndex {
-        dir_offset_index: NO_CHILD,
+        dir_offset_index: 0xFF_FFFF,
         file_info_index: new_info_idx,
     });
 
@@ -385,7 +385,7 @@ fn unshare_file(
         .flags
         .set_standalone_file(true);
     let shared_hash = ctx.filepaths[usize::from(shared_file)].path.hash40();
-    info!(
+    debug!(
         "Unshared file '{}' ({:#x}) from '{}' ({:#x})",
         hashes::find(hash),
         hash.0,
@@ -434,7 +434,7 @@ pub fn reshare_file_groups(ctx: &mut AdditionContext) {
         .iter()
         .filter_map(|dir_info| {
             if let Some(RedirectionType::Shared(file_group)) = ctx.get_directory_dependency_ctx(dir_info) {
-                if file_group.directory_index != NO_CHILD {
+                if file_group.directory_index != 0xFF_FFFF {
                     Some((dir_info.file_info_range(), file_group.range(), dir_info.path.index() as usize))
                 } else {
                     None
@@ -447,7 +447,7 @@ pub fn reshare_file_groups(ctx: &mut AdditionContext) {
 
     for (file_info_range, file_group_range, dir_offset_index) in ranges {
         reshare_file_group(ctx, file_info_range, file_group_range);
-        ctx.folder_offsets_vec[dir_offset_index].directory_index = NO_CHILD;
+        ctx.folder_offsets_vec[dir_offset_index].directory_index = 0xFF_FFFF;
     }
 }
 
@@ -484,7 +484,7 @@ pub fn reshare_file(
             *index
         } else {
             // it isn't in the vanilla filesyste and we didn't add it
-            error!(
+            debug!(
                 "Could not get the file path index for '{}' ({:#x})",
                 hashes::find(reshare_to),
                 reshare_to.0
@@ -505,7 +505,7 @@ pub fn reshare_file(
     // that arcropolis knows when to load added files is by looking at the directory's FileInfo's flags
     if let Some((dir_hash, file_index)) = unshare_lut.get_dir_entry_for_file(dst) {
         let Ok(dir_info) = ctx.get_dir_info_from_hash_ctx(dir_hash).copied() else {
-            error!("Could not get the DirInfo for '{}' ({:#x})", hashes::find(dir_hash), dir_hash.0);
+            debug!("Could not get the DirInfo for '{}' ({:#x})", hashes::find(dir_hash), dir_hash.0);
             return;
         };
 
@@ -521,7 +521,7 @@ pub fn reshare_file(
     // it causes a real problem? Might be worth looking at in the future but for now it appears to be
     // ok
     let Ok(file_path_index) = ctx.get_file_path_index_from_hash(dst) else {
-        error!("Could not get the file path index for '{}' ({:#x})", hashes::find(dst), dst.0);
+        debug!("Could not get the file path index for '{}' ({:#x})", hashes::find(dst), dst.0);
         return;
     };
 

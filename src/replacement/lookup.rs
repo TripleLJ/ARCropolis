@@ -245,61 +245,14 @@ impl ShareLookup {
 
 pub fn with_lookups<F>(f: F)
 where
-    F: FnOnce(&mut UnshareLookup, &mut ShareLookup),
+    F: FnOnce(&UnshareLookup, &mut ShareLookup),
 {
-    let mut unshare = UNSHARE_LOOKUP.write().unwrap();
+    let unshare = UNSHARE_LOOKUP.read().unwrap();
     let mut share = SHARE_LOOKUP.write().unwrap();
-    match (&mut *unshare, &mut *share) {
+    match (&*unshare, &mut *share) {
         (UnshareLookupState::Generated(unshare_lut), ShareLookupState::Generated(share_lut)) => f(unshare_lut, share_lut),
         _ => {
             warn!("Lookup tables are not initialized");
         },
-    }
-}
-
-pub fn get_dir_entry_for_file<H: Into<Hash40>>(hash: H) -> Option<(Hash40, usize)> {
-    let lut = UNSHARE_LOOKUP.read().unwrap();
-    match &*lut {
-        UnshareLookupState::Generated(lut) => lut.get_dir_entry_for_file(hash),
-        _ => None,
-    }
-}
-
-pub fn is_shared_file<H: Into<Hash40>>(hash: H) -> bool {
-    let lut = SHARE_LOOKUP.read().unwrap();
-    match &*lut {
-        ShareLookupState::Generated(lut) => lut.is_shared_file(hash),
-        _ => false,
-    }
-}
-
-pub fn add_shared_file<H: Into<Hash40>>(hash: H, shared_to: H) {
-    let mut lut = SHARE_LOOKUP.write().unwrap();
-    if let ShareLookupState::Generated(lut) = &mut *lut {
-        lut.add_shared_file(hash, shared_to);
-    }
-}
-
-pub fn remove_shared_file<H: Into<Hash40>>(hash: H) -> bool {
-    let mut lut = SHARE_LOOKUP.write().unwrap();
-    match &mut *lut {
-        ShareLookupState::Generated(lut) => lut.remove_shared_file(hash),
-        _ => false,
-    }
-}
-
-pub fn get_shared_file_count<H: Into<Hash40>>(hash: H) -> usize {
-    let lut = SHARE_LOOKUP.read().unwrap();
-    match &*lut {
-        ShareLookupState::Generated(lut) => lut.get_shared_file_count(hash),
-        _ => 0,
-    }
-}
-
-pub fn get_shared_file<H: Into<Hash40>>(hash: H, index: usize) -> Option<Hash40> {
-    let lut = SHARE_LOOKUP.read().unwrap();
-    match &*lut {
-        ShareLookupState::Generated(lut) => lut.get_shared_file(hash, index),
-        _ => None,
     }
 }

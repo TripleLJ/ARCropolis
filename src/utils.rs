@@ -26,10 +26,6 @@ pub mod env {
         &PLATFORM
     }
 
-    pub fn is_hardware() -> bool {
-        matches!(get_running_env(), RunEnvironment::Switch)
-    }
-
     pub fn is_emulator() -> bool {
         matches!(get_running_env(), RunEnvironment::Emulator)
     }
@@ -68,6 +64,10 @@ pub mod paths {
 
     pub fn config() -> Utf8PathBuf {
         Utf8PathBuf::from("sd:/ultimate/arcropolis/config")
+    }
+
+    pub fn resources() -> Utf8PathBuf {
+        Utf8PathBuf::from("sd:/ultimate/arcropolis/resources")
     }
 
     pub fn logs() -> Utf8PathBuf {

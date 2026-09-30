@@ -1,0 +1,393 @@
+# Every game address the arcadia crate resolves, with its 13.0.4 value. tools/patterns.py turns
+# this into src/offsets.rs. `name` is the accessor in `offsets::`, `kind` is how it is found:
+#   fn        a function, matched on its own first bytes
+#   adrp_ldr  a global reached with ADRP + LDR inside `anchor`
+#   adrp_add  a global (vtable) reached with ADRP + ADD inside `anchor`
+
+# scene framework
+[[entry]]
+name = "register_scene_table"
+addr = 0x71037234e0
+addr_1305 = 0x7103723a90
+kind = "fn"
+[[entry]]
+name = "unregister_scene_table"
+addr = 0x71037238c0
+addr_1305 = 0x7103723e70
+kind = "fn"
+[[entry]]
+name = "exit_active_scene"
+addr = 0x7103726540
+addr_1305 = 0x7103726af0
+kind = "fn"
+[[entry]]
+name = "sequence_scene_ctor"
+addr = 0x7103723fa0
+addr_1305 = 0x7103724550
+kind = "fn"
+[[entry]]
+name = "sequence_scene_dtor"
+addr = 0x7103724110
+addr_1305 = 0x71037246c0
+kind = "fn"
+[[entry]]
+name = "scene_queue_push_front"
+addr = 0x7103726120
+addr_1305 = 0x71037266d0
+kind = "fn"
+[[entry]]
+name = "menu_sequence_scene_on_enter"
+addr = 0x71023632e0
+addr_1305 = 0x7102363730
+kind = "fn"
+[[entry]]
+name = "menu_sequence_scene_push_main_menu"
+addr = 0x710235c6b0
+addr_1305 = 0x710235cb00
+kind = "fn"
+[[entry]]
+name = "g_vtable_scene"
+addr = 0x71050b52f0
+addr_1305 = 0x71050b62f0
+kind = "adrp_add"
+anchor = 0x71022dbe80  # HelpSequenceSceneFactory::Create
+[[entry]]
+name = "g_vtable_sequence_scene_ui"
+addr = 0x71050a0070
+addr_1305 = 0x71050a1070
+kind = "adrp_add"
+anchor = 0x71022dbe80  # HelpSequenceSceneFactory::Create
+[[entry]]
+name = "g_vtable_scene_init_code_parameter"
+addr = 0x71050a01c0
+addr_1305 = 0x71050a11c0
+kind = "adrp_add"
+anchor = 0x7102359580  # HelpSequenceScene::PushHelpTopScene
+
+# header bar and menu background
+[[entry]]
+name = "com_frame_set_title_text"
+addr = 0x7101af8e90
+addr_1305 = 0x7101af8e90
+kind = "fn"
+[[entry]]
+name = "com_frame_set_title_format"
+addr = 0x7101af8c80
+addr_1305 = 0x7101af8c80
+kind = "fn"
+[[entry]]
+name = "com_frame_set_scene_text"
+addr = 0x7101af90b0
+addr_1305 = 0x7101af90b0
+kind = "fn"
+[[entry]]
+name = "com_frame_set_header_size"
+addr = 0x7101af60a0
+addr_1305 = 0x7101af60a0
+kind = "fn"
+[[entry]]
+name = "com_frame_set_footer_message"
+addr = 0x7101af53d0
+addr_1305 = 0x7101af53d0
+kind = "fn"
+[[entry]]
+name = "com_frame_show_frame"
+addr = 0x7101af8570
+addr_1305 = 0x7101af8570
+kind = "fn"
+[[entry]]
+name = "com_frame_build_show_frame_options"
+addr = 0x7101af5880
+addr_1305 = 0x7101af5880
+kind = "fn"
+[[entry]]
+name = "com_frame_colour_header"
+addr = 0x7101af5f00
+addr_1305 = 0x7101af5f00
+kind = "fn"
+[[entry]]
+name = "com_frame_play_footer_help_anim"
+addr = 0x7101af5320
+addr_1305 = 0x7101af5320
+kind = "fn"
+[[entry]]
+name = "com_frame_set_footer_button"
+addr = 0x7101af6200
+addr_1305 = 0x7101af6200
+kind = "fn"
+[[entry]]
+name = "com_frame_refresh_footer_layout"
+addr = 0x7101af4610
+addr_1305 = 0x7101af4610
+kind = "fn"
+[[entry]]
+name = "menu_background_set_background"
+addr = 0x7101af2070
+addr_1305 = 0x7101af2070
+kind = "fn"
+[[entry]]
+name = "g_com_frame_holder"
+addr = 0x710532e840
+addr_1305 = 0x710532f840
+kind = "adrp_ldr"
+anchor = 0x71033676d0  # comframe_lua_show_frame
+
+# layouts
+[[entry]]
+name = "layout_root_create"
+addr = 0x7103772c50
+addr_1305 = 0x7103773200
+kind = "fn"
+[[entry]]
+name = "layout_root_build_from_layout_arc"
+addr = 0x71032cb980
+addr_1305 = 0x71032cbf30
+kind = "fn"
+[[entry]]
+name = "layout_root_set_enable_input"
+addr = 0x7103775b40
+addr_1305 = 0x71037760f0
+kind = "fn"
+[[entry]]
+name = "layout_root_activate"
+addr = 0x7103775810
+addr_1305 = 0x7103775dc0
+kind = "fn"
+[[entry]]
+name = "layout_root_destroy"
+addr = 0x71037731c0
+addr_1305 = 0x7103773770
+kind = "fn"
+[[entry]]
+name = "text_box_set_text_string"
+addr = 0x71037a22f0
+addr_1305 = 0x71037a28a0
+kind = "fn"
+# ARCropolis hooks this one for xmsbt, so its first 20 bytes are a branch at runtime, start past them
+skip = 20
+[[entry]]
+name = "msbt_get_by_label"
+addr = 0x7103779b70
+addr_1305 = 0x710377a120
+kind = "fn"
+[[entry]]
+name = "pane_set_text_format"
+addr = 0x7103779ef0
+addr_1305 = 0x710377a4a0
+kind = "fn"
+[[entry]]
+name = "view_play_animation"
+addr = 0x7103777d50
+addr_1305 = 0x7103778300
+kind = "fn"
+[[entry]]
+name = "pane_restore_original_texture"
+addr = 0x71037790a0
+addr_1305 = 0x7103779650
+kind = "fn"
+[[entry]]
+name = "view_get_pane"
+addr = 0x7103776360
+addr_1305 = 0x7103776910
+kind = "fn"
+[[entry]]
+name = "view_get_parts"
+addr = 0x7103776090
+addr_1305 = 0x7103776640
+kind = "fn"
+
+# list scroller
+[[entry]]
+name = "list_scroller_setup"
+addr = 0x7103781470
+addr_1305 = 0x7103781a20
+kind = "fn"
+[[entry]]
+name = "list_scroller_set_current_index"
+addr = 0x7103783660
+addr_1305 = 0x7103783c10
+kind = "fn"
+[[entry]]
+name = "list_scroller_refresh_visible_rows"
+addr = 0x710377c6d0
+addr_1305 = 0x710377cc80
+kind = "fn"
+
+# button selector
+[[entry]]
+name = "button_selector_create"
+addr = 0x7103770580
+addr_1305 = 0x7103770b30
+kind = "fn"
+[[entry]]
+name = "button_selector_setup_button"
+addr = 0x7103771220
+addr_1305 = 0x71037717d0
+kind = "fn"
+[[entry]]
+name = "button_selector_select_button"
+addr = 0x71037714d0
+addr_1305 = 0x7103771a80
+kind = "fn"
+[[entry]]
+name = "button_selector_set_shortcut"
+addr = 0x7103771380
+addr_1305 = 0x7103771930
+kind = "fn"
+[[entry]]
+name = "button_selector_config_set_default_callbacks"
+addr = 0x710337d970
+addr_1305 = 0x710337df20
+kind = "fn"
+
+# sub menu (the speech bubble)
+[[entry]]
+name = "sub_menu_ctor"
+addr = 0x71032d5a50
+addr_1305 = 0x71032d6000
+kind = "fn"
+[[entry]]
+name = "sub_menu_attach"
+addr = 0x71032d5ec0
+addr_1305 = 0x71032d6470
+kind = "fn"
+
+# fade
+[[entry]]
+name = "fade_in"
+addr = 0x71032e5480
+addr_1305 = 0x71032e5a30
+kind = "fn"
+[[entry]]
+name = "fade_out"
+addr = 0x71032e5640
+addr_1305 = 0x71032e5bf0
+kind = "fn"
+[[entry]]
+name = "fade_out_instant"
+addr = 0x71032e58b0
+addr_1305 = 0x71032e5e60
+kind = "fn"
+[[entry]]
+name = "g_fade_manager_holder"
+addr = 0x710532e7c8
+addr_1305 = 0x710532f7c8
+kind = "adrp_ldr"
+anchor = 0x7103366b60
+
+# threaded loading list
+[[entry]]
+name = "loading_list_queue"
+addr = 0x710323b900
+addr_1305 = 0x710323beb0
+kind = "fn"
+[[entry]]
+name = "loading_list_wait"
+addr = 0x710323c5d0
+addr_1305 = 0x710323cb80
+kind = "fn"
+[[entry]]
+name = "loading_list_free"
+addr = 0x710323b430
+addr_1305 = 0x710323b9e0
+kind = "fn"
+[[entry]]
+name = "g_vtable_threaded_loading_list"
+addr = 0x7105180b40
+addr_1305 = 0x7105181b40
+kind = "adrp_add"
+anchor = 0x710323b850  # ThreadedLoadingList::Destruct
+
+# popup
+[[entry]]
+name = "popup_open"
+addr = 0x71032f23f0
+addr_1305 = 0x71032f29a0
+kind = "fn"
+[[entry]]
+name = "g_popup_holder"
+addr = 0x710532e820
+addr_1305 = 0x710532f820
+kind = "adrp_ldr"
+anchor = 0x7103367320
+[[entry]]
+name = "popup_populate_params"
+addr = 0x71032ed9c0
+addr_1305 = 0x71032edf70
+kind = "fn"
+[[entry]]
+name = "popup_open_from_params"
+addr = 0x71032f1600
+addr_1305 = 0x71032f1bb0
+kind = "fn"
+
+# texture from memory
+[[entry]]
+name = "texture_resource_construct"
+addr = 0x71037a2c30
+addr_1305 = 0x71037a31e0
+kind = "fn"
+[[entry]]
+name = "res_texture_file_cast"
+addr = 0x7100031100
+addr_1305 = 0x7100031100
+kind = "fn"
+[[entry]]
+name = "texture_resource_setup_gpu"
+addr = 0x71037a28f0
+addr_1305 = 0x71037a2ea0
+kind = "fn"
+[[entry]]
+name = "texture_resource_reset"
+addr = 0x71037a2400
+addr_1305 = 0x71037a29b0
+kind = "fn"
+[[entry]]
+name = "picture_set_texture_info"
+addr = 0x710379e410
+addr_1305 = 0x710379e9c0
+kind = "fn"
+
+# nn::swkbd
+[[entry]]
+name = "swkbd_make_preset"
+addr = 0x71039c65a0
+addr_1305 = 0x71039c6b50
+kind = "fn"
+[[entry]]
+name = "swkbd_set_header_text"
+addr = 0x71039c65b0
+addr_1305 = 0x71039c6b60
+kind = "fn"
+[[entry]]
+name = "swkbd_set_guide_text"
+addr = 0x71039c5be0
+addr_1305 = 0x71039c6190
+kind = "fn"
+[[entry]]
+name = "swkbd_set_initial_text"
+addr = 0x71039c5bb0
+addr_1305 = 0x71039c6160
+kind = "fn"
+[[entry]]
+name = "swkbd_get_required_work_buffer_size"
+addr = 0x71039c6570
+addr_1305 = 0x71039c6b20
+kind = "fn"
+[[entry]]
+name = "swkbd_show_keyboard"
+addr = 0x71039c6400
+addr_1305 = 0x71039c69b0
+kind = "fn"
+
+# the game's heap
+[[entry]]
+name = "je_aligned_alloc"
+addr = 0x710392dce0
+addr_1305 = 0x710392e290
+kind = "fn"
+[[entry]]
+name = "free_default"
+addr = 0x710392e590
+addr_1305 = 0x710392eb40
+kind = "fn"
