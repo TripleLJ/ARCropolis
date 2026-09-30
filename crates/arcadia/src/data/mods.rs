@@ -10,7 +10,7 @@ use super::paths;
 #[derive(Debug, Deserialize, Default)]
 pub struct ModInfo {
     pub display_name: Option<String>,
-    pub authors: Option<String>,
+    pub author: Option<String>,
     pub version: Option<String>,
     pub description: Option<String>,
     pub category: Option<String>,
@@ -35,11 +35,12 @@ pub fn read_info(path: &Utf8Path, folder_name: &str) -> ModInfo {
 pub enum ModCategory {
     Fighter,
     Stage,
-    Effects,
+    Item,
     Ui,
-    Param,
-    Audio,
-    Misc,
+    Parameter,
+    Sound,
+    Plugin,
+    Miscellaneous,
 }
 
 impl ModCategory {
@@ -47,11 +48,12 @@ impl ModCategory {
         match value.to_ascii_lowercase().as_str() {
             "fighter" => ModCategory::Fighter,
             "stage" => ModCategory::Stage,
-            "effects" => ModCategory::Effects,
+            "item" => ModCategory::Item,
             "ui" => ModCategory::Ui,
-            "param" => ModCategory::Param,
-            "audio" | "music" => ModCategory::Audio,
-            _ => ModCategory::Misc,
+            "parameter" => ModCategory::Parameter,
+            "sound" | "music" => ModCategory::Sound,
+            "plugin" => ModCategory::Plugin,
+            _ => ModCategory::Miscellaneous,
         }
     }
 
@@ -59,11 +61,12 @@ impl ModCategory {
         match self {
             ModCategory::Fighter => "Fighter",
             ModCategory::Stage => "Stage",
-            ModCategory::Effects => "Effects",
+            ModCategory::Item => "Item",
             ModCategory::Ui => "UI",
-            ModCategory::Param => "Param",
-            ModCategory::Audio => "Audio",
-            ModCategory::Misc => "Misc",
+            ModCategory::Parameter => "Parameter",
+            ModCategory::Sound => "Sound",
+            ModCategory::Plugin => "Plugin",
+            ModCategory::Miscellaneous => "Miscellaneous",
         }
     }
 }
@@ -74,7 +77,7 @@ pub struct ModEntry {
     pub category: ModCategory,
     pub description: String,
     pub version: String,
-    pub authors: String,
+    pub author: String,
 
     pub hash: Hash40,
     pub enabled: bool,
@@ -121,10 +124,10 @@ pub fn scan(preset: &HashSet<Hash40>) -> Vec<ModEntry> {
             Some(ModEntry {
                 display_name,
                 folder,
-                category: info.category.as_deref().map(ModCategory::from_str).unwrap_or(ModCategory::Misc),
+                category: info.category.as_deref().map(ModCategory::from_str).unwrap_or(ModCategory::Miscellaneous),
                 description: info.description.unwrap_or_default(),
                 version: info.version.unwrap_or_else(|| "???".to_string()),
-                authors: info.authors.unwrap_or_else(|| "???".to_string()),
+                author: info.author.unwrap_or_else(|| "???".to_string()),
                 hash,
                 enabled: preset.contains(&hash),
                 preview,
@@ -132,7 +135,7 @@ pub fn scan(preset: &HashSet<Hash40>) -> Vec<ModEntry> {
         })
         .collect();
 
-    mods.sort_by(|a, b| a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()));
+    mods.sort_by(|a, b| a.folder.to_lowercase().cmp(&b.folder.to_lowercase()));
     mods
 }
 
