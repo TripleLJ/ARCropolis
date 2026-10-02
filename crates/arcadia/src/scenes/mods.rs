@@ -55,7 +55,7 @@ static TITLE_PANE: &[u8] = b"set_txt_topic_title\0";
 
 static ROW_NUM_PANE: &[u8] = b"set_txt_num\0";
 static ROW_ON: &str = "ON";
-static ROW_OFF: &str = "OFF";
+static ROW_OFF: &str = " ";
 
 static ROW_COL_FIGHTER: &[u8] = b"col_fighter\0";
 static ROW_COL_STAGE: &[u8] = b"col_stage\0";
@@ -63,6 +63,7 @@ static ROW_COL_EFFECTS: &[u8] = b"col_effects\0";
 static ROW_COL_UI: &[u8] = b"col_ui\0";
 static ROW_COL_PARAM: &[u8] = b"col_param\0";
 static ROW_COL_AUDIO: &[u8] = b"col_audio\0";
+static ROW_COL_UNIQUE: &[u8] = b"col_unique\0";
 static ROW_COL_MISC: &[u8] = b"col_misc\0";
 
 static ROW_ICONS_OFF: &[u8] = b"fighter_icon_off\0";
@@ -105,15 +106,16 @@ const MAX_DESC_LINES: usize = 60;
 
 const PREVIEW_SETTLE_FRAMES: u32 = 2;
 
-static TABS: [(&str, Option<ModCategory>); 8] = [
+static TABS: [(&str, Option<ModCategory>); 9] = [
     ("All", None),
+    ("UI", Some(ModCategory::Ui)),
     ("Fighter", Some(ModCategory::Fighter)),
     ("Stage", Some(ModCategory::Stage)),
-    ("Effects", Some(ModCategory::Effects)),
-    ("UI", Some(ModCategory::Ui)),
-    ("Param", Some(ModCategory::Param)),
-    ("Audio", Some(ModCategory::Audio)),
-    ("Misc", Some(ModCategory::Misc)),
+    ("Item", Some(ModCategory::Effects)),
+    ("Sound", Some(ModCategory::Audio)),
+    ("Parameter", Some(ModCategory::Param)),
+    ("Plugin", Some(ModCategory::Unique)),
+    ("Miscellaneous", Some(ModCategory::Misc)),
 ];
 
 static ASSIGN_EXTRA: [(VirtualButton, Buttons); 2] = [(VirtualButton::Extra0, Buttons::L), (VirtualButton::Extra1, Buttons::R)];
@@ -494,7 +496,7 @@ impl ArcadiaScene {
         let category = entry.category.label();
         let description = entry.description.clone();
         let version = entry.version.clone();
-        let authors = entry.authors.clone();
+        let author = entry.author.clone();
 
         if let Some(view) = self.root_view() {
             unsafe {
@@ -510,7 +512,7 @@ impl ArcadiaScene {
         let mut lines = wrap_lines(&description, WRAP_COLUMNS, MAX_DESC_LINES);
         lines.push(String::new());
         lines.push(format!("Version: {}", version));
-        lines.push(format!("Authors: {}", authors));
+        lines.push(format!("Author: {}", author));
         self.set_description(&lines);
     }
 
@@ -796,6 +798,7 @@ fn row_colour_tag(category: ModCategory) -> &'static [u8] {
         ModCategory::Ui => ROW_COL_UI,
         ModCategory::Param => ROW_COL_PARAM,
         ModCategory::Audio => ROW_COL_AUDIO,
+        ModCategory::Unique => ROW_COL_UNIQUE,
         ModCategory::Misc => ROW_COL_MISC,
     }
 }
